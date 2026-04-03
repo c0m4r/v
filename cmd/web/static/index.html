@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>v - VM Manager</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="vendor/xterm/xterm.css">
+</head>
+<body>
+  <header>
+    <h1>v</h1>
+    <span class="subtitle">lightweight VM manager</span>
+    <button id="btn-settings" class="btn btn-small header-btn">Settings</button>
+  </header>
+
+  <main>
+    <section id="vm-section">
+      <div class="section-header">
+        <h2>Virtual Machines</h2>
+        <button id="btn-create" class="btn btn-primary">Create VM</button>
+      </div>
+      <table id="vm-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>ID</th>
+            <th>CPUs</th>
+            <th>Memory</th>
+            <th>Disk</th>
+            <th>Net</th>
+            <th>IP</th>
+            <th>State</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="vm-list"></tbody>
+      </table>
+      <p id="no-vms" class="empty-msg" hidden>No VMs found.</p>
+    </section>
+
+    <!-- Settings Dialog -->
+    <dialog id="settings-dialog">
+      <h3>Settings</h3>
+      <form id="settings-form">
+        <label>Default SSH Public Key
+          <textarea name="default_ssh_key" id="settings-ssh-key" rows="4" placeholder="ssh-ed25519 AAAA... user@host"></textarea>
+        </label>
+        <p class="hint">This key will be injected into every new VM via cloud-init.</p>
+        <div class="dialog-actions">
+          <button type="button" class="btn" onclick="document.getElementById('settings-dialog').close()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Create VM Dialog -->
+    <dialog id="create-dialog">
+      <h3>Create VM</h3>
+      <form id="create-form">
+        <label>Name <input name="name" required pattern="[a-zA-Z0-9][a-zA-Z0-9._-]*"></label>
+        <label>Image <select name="image" id="image-select" required></select></label>
+        <label>CPUs <input name="cpus" type="number" value="1" min="1" max="64"></label>
+        <label>Memory (MB) <input name="memory_mb" type="number" value="512" min="128" step="128"></label>
+        <label>Disk Size <input name="disk_size" value="10G" pattern="[0-9]+[GMTgmt]"></label>
+        <label>Network
+          <select name="net_mode">
+            <option value="user">User (NAT, no root)</option>
+            <option value="bridge">Bridge (requires setup)</option>
+          </select>
+        </label>
+        <label>SSH Public Key (optional, overrides default)
+          <textarea name="ssh_key" rows="3" placeholder="ssh-ed25519 AAAA... user@host"></textarea>
+        </label>
+        <div class="dialog-actions">
+          <button type="button" class="btn" onclick="document.getElementById('create-dialog').close()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create</button>
+        </div>
+      </form>
+    </dialog>
+
+  </main>
+
+  <!-- Console overlay (not a dialog) -->
+  <div id="console-overlay" class="console-overlay" hidden>
+    <div id="console-panel" class="console-panel">
+      <div class="console-header">
+        <span id="console-title">Console</span>
+        <span id="console-status" class="console-status"></span>
+        <button id="btn-fullscreen" class="btn btn-small" onclick="toggleFullscreen()">Fullscreen</button>
+        <button class="btn btn-small" onclick="closeConsole()">Close</button>
+      </div>
+      <div id="terminal"></div>
+    </div>
+  </div>
+
+  <script src="vendor/xterm/xterm.js"></script>
+  <script src="vendor/xterm/addon-fit.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

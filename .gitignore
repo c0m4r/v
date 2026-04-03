@@ -1,0 +1,4 @@
+/cmd/web/static/vendor
+/dist
+/node_modules
+/v

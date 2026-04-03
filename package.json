@@ -1,0 +1,13 @@
+{
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=11.10.0"
+  },
+  "scripts": {
+    "postinstall": "mkdir -p cmd/web/static/vendor/xterm && cp node_modules/@xterm/xterm/css/xterm.css node_modules/@xterm/xterm/lib/xterm.js node_modules/@xterm/addon-fit/lib/addon-fit.js cmd/web/static/vendor/xterm/"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0"
+  }
+}
