@@ -12,12 +12,17 @@ Provides a CLI and web UI for creating, running, and managing QEMU/KVM virtual m
 
 </div>
 
+<img width="991" height="344" alt="image" src="https://github.com/user-attachments/assets/d45729db-8881-4cce-b1fd-d81ec5b54cdf" />
+
 ## Features
 
 - Create VMs from cloud images (qcow2/img) or ISO installers
 - Thin-provisioned disks (copy-on-write clones of base images)
 - Cloud-init for automatic SSH key injection and initial setup
 - Serial console access (CLI and web terminal via xterm.js)
+
+<img width="751" height="465" alt="image" src="https://github.com/user-attachments/assets/c928f6db-6e17-4c47-8a96-d8ae96f317da" />
+
 - User-mode (NAT) and bridged networking
 - Web UI with real-time VM management
 - Configurable image registry (add your own images)
