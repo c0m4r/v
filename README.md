@@ -6,7 +6,7 @@
 ![Go](https://img.shields.io/badge/go%20go-go-blue?logo=go&logoColor=ffffff)
 [![License: GPL v3](https://img.shields.io/badge/License-AGPLv3-red.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-Lightweight KVM virtual machine manager for Linux.
+Lightweight KVM virtual machine manager for Linux®
 
 Provides a CLI and web UI for creating, running, and managing QEMU/KVM virtual machines with cloud-init support.
 
@@ -35,7 +35,7 @@ Provides a CLI and web UI for creating, running, and managing QEMU/KVM virtual m
 - QEMU (`qemu-system-x86_64`, `qemu-img`)
 - `genisoimage` or `mkisofs` (for cloud-init ISO generation)
 - Go 1.26+ (to build from source)
-- Node.js / npm (for web UI frontend dependencies)
+- npm to install [xterm.js](https://github.com/xtermjs/xterm.js/)
 
 Optional (for bridged networking):
 - `dnsmasq`
@@ -313,3 +313,5 @@ sudo v serve
 ## License
 
 See [LICENSE](LICENSE) file.
+
+Linux® is the registered trademark of Linus Torvalds in the U.S. and other countries.
