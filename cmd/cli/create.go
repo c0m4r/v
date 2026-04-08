@@ -16,6 +16,7 @@ func cmdCreate(e *engine.Engine, args []string) error {
 	disk := fs.String("disk", "10G", "Disk size (e.g. 10G, 20G)")
 	netMode := fs.String("net", "user", "Network mode: user or bridge")
 	sshKey := fs.String("ssh-key", "", "Public SSH key string or path to .pub file")
+	password := fs.String("password", "", `Root password (leave blank to auto-generate, "none" for no password)`)
 	userData := fs.String("user-data", "", "Path to cloud-init user-data file")
 
 	if err := fs.Parse(args); err != nil {
@@ -43,14 +44,15 @@ func cmdCreate(e *engine.Engine, args []string) error {
 	sshKeyContent := resolveSSHKey(*sshKey)
 
 	vm, err := e.CreateVM(engine.CreateVMOpts{
-		Name:     *name,
-		CPUs:     *cpus,
-		MemoryMB: *memory,
-		DiskSize: *disk,
-		Image:    imageName,
-		NetMode:  *netMode,
-		SSHKey:   sshKeyContent,
-		UserData: userDataContent,
+		Name:         *name,
+		CPUs:         *cpus,
+		MemoryMB:     *memory,
+		DiskSize:     *disk,
+		Image:        imageName,
+		NetMode:      *netMode,
+		SSHKey:       sshKeyContent,
+		RootPassword: *password,
+		UserData:     userDataContent,
 	})
 	if err != nil {
 		return err
@@ -61,6 +63,11 @@ func cmdCreate(e *engine.Engine, args []string) error {
 	fmt.Printf("  Image: %s, Net: %s\n", vm.BaseImage, vm.NetMode)
 	if vm.BootDev == "cdrom" {
 		fmt.Printf("  Boot: ISO (will boot from %s)\n", vm.BaseImage)
+	}
+	if vm.RootPassword != "" {
+		fmt.Printf("  Root password: %s\n", vm.RootPassword)
+	} else {
+		fmt.Printf("  Root password: (none — use SSH key)\n")
 	}
 	fmt.Printf("\nStart with: v start %s\n", vm.Name)
 	return nil

@@ -69,6 +69,15 @@
             <option value="bridge">Bridge (requires setup)</option>
           </select>
         </label>
+        <label>Root Password
+          <div class="input-row">
+            <input name="root_password" id="create-pw-input" type="text" autocomplete="off" spellcheck="false">
+            <button type="button" class="btn btn-small" onclick="regenerateCreatePassword()">Regenerate</button>
+          </div>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="no-password-check"> No password (SSH key only)
+        </label>
         <label>SSH Public Key (optional, overrides default)
           <textarea name="ssh_key" rows="3" placeholder="ssh-ed25519 AAAA... user@host"></textarea>
         </label>
@@ -77,6 +86,19 @@
           <button type="submit" class="btn btn-primary">Create</button>
         </div>
       </form>
+    </dialog>
+
+    <!-- Password Dialog -->
+    <dialog id="password-dialog">
+      <h3 id="pw-dialog-title">Root Password</h3>
+      <div class="input-row" style="margin-top:0.6rem">
+        <input type="password" id="pw-display" readonly spellcheck="false">
+        <button type="button" class="btn btn-small" id="pw-toggle-btn" onclick="togglePwVisibility()">Show</button>
+        <button type="button" class="btn btn-small" onclick="copyStoredPassword()">Copy</button>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="btn" onclick="document.getElementById('password-dialog').close()">Close</button>
+      </div>
     </dialog>
 
   </main>

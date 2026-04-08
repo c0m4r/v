@@ -99,7 +99,15 @@ func (e *Engine) StartVM(idOrName string) error {
 	// Networking
 	switch vm.NetMode {
 	case "bridge":
-		tapName := fmt.Sprintf("v-tap-%s", vm.ID[:6])
+		if os.Getuid() != 0 {
+			return fmt.Errorf("bridge networking requires root privileges; re-run with sudo or change the VM network mode to user")
+		}
+		// Remove stale tap from a previous run before creating a fresh one.
+		e.DeleteTap(vm.ID)
+		tapName, err := e.CreateTap(vm.ID)
+		if err != nil {
+			return fmt.Errorf("create tap for bridge: %w", err)
+		}
 		args = append(args,
 			"-netdev", fmt.Sprintf("tap,id=net0,ifname=%s,script=no,downscript=no", tapName),
 			"-device", fmt.Sprintf("virtio-net-pci,netdev=net0,mac=%s", vm.MACAddr),
@@ -185,6 +193,10 @@ func (e *Engine) ForceStopVM(idOrName string) error {
 	_ = os.Remove(pidFile)
 	_ = os.Remove(filepath.Join(e.VMPath(vm.ID), "qmp.sock"))
 	_ = os.Remove(filepath.Join(e.VMPath(vm.ID), "console.sock"))
+
+	if vm.NetMode == "bridge" {
+		e.DeleteTap(vm.ID)
+	}
 
 	return nil
 }

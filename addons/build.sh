@@ -29,6 +29,14 @@ GCFLAGS=""
 echo "Building ${BINARY} ${VERSION} on ${DATE}"
 echo
 
+CGO_ENABLED=0 \
+    go build \
+        -trimpath \
+        -ldflags "${LDFLAGS}" \
+        -gcflags "${GCFLAGS}" \
+        -o v \
+        .
+
 mkdir -p "${DIST}"
 
 for target in "${TARGETS[@]}"; do

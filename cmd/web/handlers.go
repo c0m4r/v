@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 
 	"github.com/c0m4r/v/engine"
 )
@@ -59,6 +60,23 @@ func handleCreateVM(e *engine.Engine) http.HandlerFunc {
 		}
 
 		jsonResponse(w, 201, vmResponse{VM: vm, State: engine.StateStopped})
+	}
+}
+
+func handleSetVMPassword(e *engine.Engine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, 400, "invalid JSON")
+			return
+		}
+		if err := e.SetRootPassword(r.PathValue("id"), req.Password); err != nil {
+			jsonError(w, 400, err.Error())
+			return
+		}
+		jsonResponse(w, 200, map[string]string{"status": "ok"})
 	}
 }
 
@@ -187,6 +205,13 @@ func handlePullImage(e *engine.Engine) http.HandlerFunc {
 func handleNetStatus(e *engine.Engine) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, 200, e.GetNetStatus())
+	}
+}
+
+func handleInfo() http.HandlerFunc {
+	isRoot := os.Getuid() == 0
+	return func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(w, 200, map[string]bool{"is_root": isRoot})
 	}
 }
 

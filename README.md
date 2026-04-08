@@ -18,7 +18,8 @@ Provides a CLI and web UI for creating, running, and managing QEMU/KVM virtual m
 
 - Create VMs from cloud images (qcow2/img) or ISO installers
 - Thin-provisioned disks (copy-on-write clones of base images)
-- Cloud-init for automatic SSH key injection and initial setup
+- Cloud-init for automatic SSH key injection, hostname, and root/default-user password
+- Auto-generated root password per VM, revealable from the web UI
 - Serial console access (CLI and web terminal via xterm.js)
 
 <img width="751" height="465" alt="image" src="https://github.com/user-attachments/assets/c928f6db-6e17-4c47-8a96-d8ae96f317da" />
@@ -26,6 +27,7 @@ Provides a CLI and web UI for creating, running, and managing QEMU/KVM virtual m
 - User-mode (NAT) and bridged networking
 - Web UI with real-time VM management
 - Configurable image registry (add your own images)
+- Graceful shutdown cleans up tap devices on exit
 
 ## Requirements
 
@@ -47,10 +49,7 @@ git clone https://github.com/c0m4r/v.git
 cd v
 ./addons/npm.sh        # fetches xterm.js into cmd/web/static/vendor/
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=$(cat VERSION)" -buildvcs=false -o v .
-./v serve
 ```
-
-Dashboard will be available at http://127.0.0.1:8080
 
 Cross build:
 
@@ -58,20 +57,40 @@ Cross build:
 ./addons/build.sh
 ```
 
+## Running v
+
+`v` can run either as an unprivileged user or as root. The two setups differ in networking capabilities and data location:
+
+| | **User mode** (no root) | **Bridge mode** (root) |
+|---|---|---|
+| **Setup** | `./v serve` | `sudo ./v net setup`<br>`sudo ./v serve` |
+| **Networking** | QEMU user-mode NAT | `v-br0` bridge + dnsmasq DHCP + iptables NAT |
+| **VM IPs** | none (guest sees 10.0.2.15 internally) | real IPs on `10.10.10.0/24` |
+| **SSH access** | host port forwarding<br>`ssh -p 2222 localhost` | direct to guest IP<br>`ssh root@10.10.10.x` |
+| **Root required** | no | yes — for bridge, taps, iptables, dnsmasq |
+| **Data dir** | `~/.local/share/v/` | `/root/.local/share/v/` |
+| **Create flag** | `--net user` (default) | `--net bridge` |
+
+`./start.sh` is a convenience wrapper that sets up bridge networking if missing and launches `v serve` under sudo.
+
+> **Note on the data directory:** Because the default data path is derived from `$HOME`, user-mode VMs live under your home directory while root-mode VMs live under `/root`. VMs created in one mode are not visible from the other. Override the location with the `V_DATA_DIR` environment variable if you want a shared path.
+
+Dashboard will be available at http://127.0.0.1:8080 once `v serve` is running.
+
 ## Quick Start
 
 ```bash
 # Pull a cloud image
 v image pull ubuntu-24.04
 
-# Create a VM
+# Create a VM (root password is auto-generated and printed)
 v create --name myvm --image ubuntu-24.04 --memory 1024 --cpus 2
 
 # Start it
 v start myvm
 
 # Connect via SSH (user-mode networking)
-ssh -p 2222 localhost
+ssh -p 2222 ubuntu@localhost
 
 # Or attach to the serial console
 v console myvm    # Ctrl+] to detach
@@ -105,7 +124,10 @@ v console myvm    # Ctrl+] to detach
 | `--disk` | 10G | Disk size |
 | `--net` | user | Network mode: `user` or `bridge` |
 | `--ssh-key` | | SSH public key (string or path to .pub file) |
-| `--user-data` | | Path to custom cloud-init user-data file |
+| `--password` | (auto-gen) | Root/default-user password; `none` to disable password auth |
+| `--user-data` | | Path to custom cloud-init user-data file (overrides `--ssh-key` and `--password`) |
+
+The password is applied to **both** `root` and the distro default user (`ubuntu`, `debian`, `rocky`, …) via cloud-init.
 
 ### Image Management
 
@@ -157,10 +179,14 @@ v serve --listen 0.0.0.0:9090
 ```
 
 The web UI provides:
-- VM list with state, IP, and action buttons (start/stop/restart/delete)
-- VM creation dialog with image selection (cached + available for download)
-- Live serial console via WebSocket (xterm.js)
+- VM list with state, IP, and action buttons (start/stop/force-stop/restart/delete/console)
+- VM creation dialog with image selection (cached + available for download), auto-generated root password with regenerate button, and a "no password" option
+- Per-VM password reveal dialog (show/hide/copy the stored root password)
+- Live serial console via WebSocket (xterm.js) with fullscreen toggle
+- Bridge network option is automatically disabled if v is not running as root
 - Settings management (default SSH key)
+
+On shutdown (Ctrl-C or SIGTERM), the web server cleans up all `v-tap-*` interfaces it created.
 
 ## ISO Images
 
@@ -221,15 +247,23 @@ v image pull https://example.com/some-image.qcow2
 
 ## Data Directory
 
-All VM data, images, and configuration are stored in `~/.local/share/v/` by default. Override with the `V_DATA_DIR` environment variable.
+VM data, images, and configuration are stored under `$HOME/.local/share/v/` — which means the location depends on which user runs `v`:
+
+- Run as your user → `~/.local/share/v/`
+- Run as root (directly or via `sudo`) → `/root/.local/share/v/`
+
+Override the location entirely with the `V_DATA_DIR` environment variable.
 
 ```
-~/.local/share/v/
+<data-dir>/
   config.json          # user settings and custom images
+  dnsmasq.pid          # dnsmasq PID (bridge mode)
+  dnsmasq.leases       # DHCP leases (bridge mode)
+  dnsmasq.log          # dnsmasq log (bridge mode)
   images/              # cached base images
   vms/
     <vm-id>/
-      vm.json          # VM metadata
+      vm.json          # VM metadata (includes stored root password)
       disk.qcow2       # VM disk (thin clone or blank)
       cloud-init.iso   # cloud-init data (cloud images only)
       pid              # QEMU process ID (when running)
@@ -244,20 +278,31 @@ All VM data, images, and configuration are stored in `~/.local/share/v/` by defa
 No root required. QEMU provides built-in NAT. SSH access is via port forwarding on the host (starting at port 2222, auto-incremented per VM).
 
 ```bash
-ssh -p 2222 localhost
+v create --name myvm --image ubuntu-24.04      # --net user is the default
+v start myvm
+ssh -p 2222 ubuntu@localhost
 ```
 
 ### Bridge Mode
 
-Requires root for initial setup. VMs get real IPs on a shared bridge network (`10.10.10.0/24`). IP addresses are assigned via dnsmasq DHCP and visible in `v info` / `v list`.
+Requires root. VMs get real IPs on a shared bridge network (`10.10.10.0/24`). IPs are assigned via dnsmasq DHCP and visible in `v info` / `v list`.
 
 ```bash
-sudo v net setup       # one-time bridge/NAT/DHCP setup
-v create --name myvm --image ubuntu-24.04 --net bridge
-v start myvm
-v info myvm            # shows assigned IP
-ssh 10.10.10.x
+sudo v net setup                                           # one-time bridge/NAT/DHCP setup
+sudo v create --name myvm --image ubuntu-24.04 --net bridge
+sudo v start myvm
+sudo v info myvm                                           # shows assigned IP
+ssh ubuntu@10.10.10.x
 ```
+
+Or, for the web UI:
+
+```bash
+sudo v net setup
+sudo v serve
+```
+
+`v net setup` creates `v-br0`, assigns `10.10.10.1/24`, enables IP forwarding, adds iptables MASQUERADE + FORWARD rules for the default route interface, and starts dnsmasq. `v net teardown` reverses all of it and removes any leftover `v-tap-*` interfaces.
 
 ## Running Tests
 

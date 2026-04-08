@@ -2,6 +2,7 @@ package web
 
 import (
 	"bufio"
+	"context"
 	"embed"
 	"flag"
 	"fmt"
@@ -9,6 +10,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/c0m4r/v/engine"
@@ -28,8 +32,24 @@ func Serve(e *engine.Engine, args []string) error {
 	mux := http.NewServeMux()
 	registerRoutes(mux, e)
 
+	srv := &http.Server{Addr: *listen, Handler: logMiddleware(mux)}
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-quit
+		log.Printf("Shutting down — cleaning up tap interfaces...")
+		e.CleanupTaps()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+
 	log.Printf("Starting web UI on http://%s", *listen)
-	return http.ListenAndServe(*listen, logMiddleware(mux))
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
 type statusWriter struct {
@@ -69,6 +89,7 @@ func registerRoutes(mux *http.ServeMux, e *engine.Engine) {
 	mux.HandleFunc("POST /api/vms/{id}/force-stop", handleForceStopVM(e))
 	mux.HandleFunc("POST /api/vms/{id}/restart", handleRestartVM(e))
 	mux.HandleFunc("PUT /api/vms/{id}/boot", handleSetBoot(e))
+	mux.HandleFunc("PUT /api/vms/{id}/password", handleSetVMPassword(e))
 	mux.HandleFunc("DELETE /api/vms/{id}", handleDeleteVM(e))
 	mux.HandleFunc("GET /api/vms/{id}/console", handleConsole(e))
 
@@ -76,6 +97,7 @@ func registerRoutes(mux *http.ServeMux, e *engine.Engine) {
 	mux.HandleFunc("POST /api/images/pull", handlePullImage(e))
 
 	mux.HandleFunc("GET /api/net/status", handleNetStatus(e))
+	mux.HandleFunc("GET /api/info", handleInfo())
 
 	mux.HandleFunc("GET /api/config", handleGetConfig(e))
 	mux.HandleFunc("PUT /api/config", handleSetConfig(e))

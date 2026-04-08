@@ -8,17 +8,30 @@ import (
 	"strings"
 )
 
-const defaultUserData = `#cloud-config
-password: changeme
-chpasswd:
-  expire: false
-ssh_pwauth: true
-`
+// buildUserData generates the default cloud-init user-data.
+// password is the plaintext password; empty string means no password auth.
+// The password is applied to both root and the distro default user.
+func buildUserData(sshKey, password string) string {
+	var b strings.Builder
+	b.WriteString("#cloud-config\n")
+	if password != "" {
+		// `password` sets the default user's password; chpasswd list also sets root.
+		b.WriteString("password: " + password + "\n")
+		b.WriteString("chpasswd:\n  expire: false\n  list: |\n    root:" + password + "\nssh_pwauth: true\n")
+	} else {
+		b.WriteString("chpasswd:\n  expire: false\nssh_pwauth: false\n")
+	}
+	if sshKey != "" {
+		b.WriteString("ssh_authorized_keys:\n  - " + strings.TrimSpace(sshKey) + "\n")
+	}
+	return b.String()
+}
 
 // GenerateCloudInit creates a cloud-init NoCloud ISO with meta-data and user-data.
-// If sshKey is provided and userData is empty, it's injected into the default user-data.
+// password is the plaintext password to set; pass empty string for no password.
+// If userData is non-empty it overrides everything else.
 // Requires genisoimage or mkisofs on the host.
-func (e *Engine) GenerateCloudInit(isoPath, hostname, sshKey, userData string) error {
+func (e *Engine) GenerateCloudInit(isoPath, hostname, sshKey, password, userData string) error {
 	tmpDir, err := os.MkdirTemp("", "v-cloudinit-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
@@ -31,10 +44,7 @@ func (e *Engine) GenerateCloudInit(isoPath, hostname, sshKey, userData string) e
 	}
 
 	if userData == "" {
-		userData = defaultUserData
-		if sshKey != "" {
-			userData += fmt.Sprintf("ssh_authorized_keys:\n  - %s\n", strings.TrimSpace(sshKey))
-		}
+		userData = buildUserData(sshKey, password)
 	}
 	if err := os.WriteFile(filepath.Join(tmpDir, "user-data"), []byte(userData), 0644); err != nil {
 		return fmt.Errorf("write user-data: %w", err)

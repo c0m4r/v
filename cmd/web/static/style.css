@@ -135,6 +135,23 @@ dialog input, dialog select, dialog textarea {
   font-size: 0.9rem;
   font-family: inherit;
 }
+.input-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+.input-row input {
+  flex: 1;
+  font-family: monospace;
+  min-width: 0;
+}
+.checkbox-label {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.5rem !important;
+  color: #c9d1d9 !important;
+  cursor: pointer;
+}
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

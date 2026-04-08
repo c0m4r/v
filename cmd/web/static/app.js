@@ -10,6 +10,7 @@ let consoleReconnectTimer = null;
 let consoleManualClose = false;
 let consoleResizeObserver = null;
 let refreshTimer = null;
+let serverIsRoot = false;
 
 // --- API helpers ---
 
@@ -71,6 +72,7 @@ function vmActions(vm) {
     btns.push(actionBtn(vm.id, "restart", "Restart", ""));
     btns.push(`<button class="btn btn-small" onclick="openConsole('${vm.id}','${esc(vm.name)}')">Console</button>`);
   }
+  btns.push(`<button class="btn btn-small" onclick="openPasswordDialog('${vm.id}','${esc(vm.name)}','${esc(vm.root_password||'')}')">Password</button>`);
   return btns.join("");
 }
 
@@ -162,7 +164,46 @@ async function loadImages() {
   }
 }
 
+function applyBridgeAvailability() {
+  const opt = document.querySelector('#create-form [name="net_mode"] option[value="bridge"]');
+  if (!opt) return;
+  if (serverIsRoot) {
+    opt.disabled = false;
+    opt.textContent = "Bridge (requires root)";
+  } else {
+    opt.disabled = true;
+    opt.textContent = "Bridge (requires root — restart v with sudo)";
+  }
+}
+
+const PASSWORD_CHARS = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function generatePassword() {
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, b => PASSWORD_CHARS[b % PASSWORD_CHARS.length]).join("");
+}
+
+function regenerateCreatePassword() {
+  const pwInput = document.getElementById("create-pw-input");
+  if (!pwInput.disabled) pwInput.value = generatePassword();
+}
+
+document.getElementById("no-password-check").addEventListener("change", (e) => {
+  const pwInput = document.getElementById("create-pw-input");
+  pwInput.disabled = e.target.checked;
+  if (!e.target.checked) pwInput.value = generatePassword();
+});
+
 document.getElementById("btn-create").addEventListener("click", async () => {
+  // Reset and auto-generate password
+  const noPassCheck = document.getElementById("no-password-check");
+  noPassCheck.checked = false;
+  const pwInput = document.getElementById("create-pw-input");
+  pwInput.disabled = false;
+  pwInput.value = generatePassword();
+
+  applyBridgeAvailability();
   loadImages();
   // Show default SSH key status
   const ta = document.querySelector('#create-form [name="ssh_key"]');
@@ -205,6 +246,9 @@ document.getElementById("create-form").addEventListener("submit", async (e) => {
       image = result.path.split("/").pop();
     }
 
+    const noPass = document.getElementById("no-password-check").checked;
+    const rootPassword = noPass ? "none" : (document.getElementById("create-pw-input").value || "");
+
     await api("POST", "/vms", {
       Name: form.get("name"),
       CPUs: parseInt(form.get("cpus")),
@@ -213,10 +257,14 @@ document.getElementById("create-form").addEventListener("submit", async (e) => {
       Image: image,
       NetMode: form.get("net_mode"),
       SSHKey: form.get("ssh_key") || "",
+      RootPassword: rootPassword,
     });
 
     document.getElementById("create-dialog").close();
     e.target.reset();
+    document.getElementById("no-password-check").checked = false;
+    document.getElementById("create-pw-input").disabled = false;
+
     await loadVMs();
   } catch (err) {
     alert("Error: " + err.message);
@@ -359,6 +407,38 @@ function closeConsole() {
   overlay.hidden = true;
 }
 
+// --- Password Dialog ---
+
+let pwDialogVMId = null;
+
+function openPasswordDialog(id, name, password) {
+  pwDialogVMId = id;
+  document.getElementById("pw-dialog-title").textContent = `Root Password — ${name}`;
+  const display = document.getElementById("pw-display");
+  display.value = password || "";
+  display.type = "password";
+  document.getElementById("pw-toggle-btn").textContent = "Show";
+  document.getElementById("password-dialog").showModal();
+}
+
+function togglePwVisibility() {
+  const display = document.getElementById("pw-display");
+  const btn = document.getElementById("pw-toggle-btn");
+  if (display.type === "password") {
+    display.type = "text";
+    btn.textContent = "Hide";
+  } else {
+    display.type = "password";
+    btn.textContent = "Show";
+  }
+}
+
+async function copyStoredPassword() {
+  const val = document.getElementById("pw-display").value;
+  if (val) await navigator.clipboard.writeText(val);
+}
+
+
 // --- Utils ---
 
 function esc(s) {
@@ -368,6 +448,15 @@ function esc(s) {
 }
 
 // --- Init ---
+
+(async () => {
+  try {
+    const info = await api("GET", "/info");
+    serverIsRoot = !!info.is_root;
+  } catch (err) {
+    serverIsRoot = false;
+  }
+})();
 
 loadVMs();
 refreshTimer = setInterval(loadVMs, 5000);

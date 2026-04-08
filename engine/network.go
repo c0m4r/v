@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -27,11 +28,17 @@ type NetStatus struct {
 // SetupNetwork creates the bridge, configures NAT, and starts dnsmasq.
 // Requires root privileges.
 func (e *Engine) SetupNetwork() error {
+	if os.Getuid() != 0 {
+		return fmt.Errorf("network setup requires root; re-run with: sudo v net setup")
+	}
+
 	// Create bridge
+	log.Printf("creating bridge %s...", BridgeName)
 	if err := run("ip", "link", "add", BridgeName, "type", "bridge"); err != nil {
 		if !strings.Contains(err.Error(), "exists") {
 			return fmt.Errorf("create bridge: %w", err)
 		}
+		log.Printf("bridge %s already exists, continuing", BridgeName)
 	}
 
 	if err := run("ip", "addr", "add", BridgeIP, "dev", BridgeName); err != nil {
@@ -43,8 +50,10 @@ func (e *Engine) SetupNetwork() error {
 	if err := run("ip", "link", "set", BridgeName, "up"); err != nil {
 		return fmt.Errorf("bring up bridge: %w", err)
 	}
+	log.Printf("bridge %s up with IP %s", BridgeName, BridgeIP)
 
 	// Enable IP forwarding
+	log.Printf("enabling IP forwarding...")
 	if err := os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1"), 0644); err != nil {
 		return fmt.Errorf("enable IP forwarding: %w", err)
 	}
@@ -54,8 +63,10 @@ func (e *Engine) SetupNetwork() error {
 	if err != nil {
 		return fmt.Errorf("find default interface: %w", err)
 	}
+	log.Printf("default interface: %s", outIface)
 
 	// Set up NAT
+	log.Printf("configuring iptables NAT and forwarding rules...")
 	_ = run("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", BridgeNet, "-o", outIface, "-j", "MASQUERADE")
 	if err := run("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", BridgeNet, "-o", outIface, "-j", "MASQUERADE"); err != nil {
 		return fmt.Errorf("setup NAT: %w", err)
@@ -72,6 +83,7 @@ func (e *Engine) SetupNetwork() error {
 	}
 
 	// Start dnsmasq
+	log.Printf("starting dnsmasq...")
 	pidFile := filepath.Join(e.DataDir, "dnsmasq.pid")
 	// Kill existing dnsmasq if running
 	if data, err := os.ReadFile(pidFile); err == nil {
@@ -79,25 +91,32 @@ func (e *Engine) SetupNetwork() error {
 	}
 
 	leaseFile := filepath.Join(e.DataDir, "dnsmasq.leases")
-	if err := run("dnsmasq",
+	logFile := filepath.Join(e.DataDir, "dnsmasq.log")
+	// Use Start() instead of CombinedOutput() so the daemonized child doesn't
+	// keep the pipe open and block the parent.
+	dnsCmd := exec.Command("dnsmasq",
 		"--interface="+BridgeName,
 		"--bind-interfaces",
 		"--dhcp-range="+DHCPRange,
 		"--dhcp-leasefile="+leaseFile,
 		"--pid-file="+pidFile,
-		"--log-facility=-", // log to stderr
+		"--log-facility="+logFile,
 		"--no-resolv",
 		"--server=8.8.8.8",
 		"--server=1.1.1.1",
-	); err != nil {
+	)
+	if err := dnsCmd.Start(); err != nil {
 		return fmt.Errorf("start dnsmasq: %w", err)
 	}
+	log.Printf("dnsmasq started (log: %s)", logFile)
 
 	return nil
 }
 
-// TeardownNetwork removes the bridge, NAT rules, and stops dnsmasq.
+// TeardownNetwork removes all v-tap devices, the bridge, NAT rules, and stops dnsmasq.
 func (e *Engine) TeardownNetwork() error {
+	e.CleanupTaps()
+
 	pidFile := filepath.Join(e.DataDir, "dnsmasq.pid")
 	if data, err := os.ReadFile(pidFile); err == nil {
 		_ = run("kill", strings.TrimSpace(string(data)))
@@ -115,6 +134,19 @@ func (e *Engine) TeardownNetwork() error {
 	_ = run("ip", "link", "delete", BridgeName)
 
 	return nil
+}
+
+// CleanupTaps removes all v-tap-* interfaces created by v.
+func (e *Engine) CleanupTaps() {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return
+	}
+	for _, iface := range ifaces {
+		if strings.HasPrefix(iface.Name, "v-tap-") {
+			_ = run("ip", "link", "delete", iface.Name)
+		}
+	}
 }
 
 // GetNetStatus returns the current status of the network infrastructure.

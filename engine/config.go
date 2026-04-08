@@ -17,7 +17,7 @@ type Config struct {
 var defaultImages = map[string]string{
 	"ubuntu-24.04":  "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img",
 	"ubuntu-22.04":  "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img",
-	"debian-13":     "https://cloud.debian.org/images/cloud/bookworm/latest/debian-13-generic-amd64.qcow2",
+	"debian-13":     "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2",
 	"debian-12":     "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2",
 	"alpine-v3.23":  "https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/x86_64/alpine-virt-3.23.3-x86_64.iso",
 	"rocky-10":      "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base.latest.x86_64.qcow2",

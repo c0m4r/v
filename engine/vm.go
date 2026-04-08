@@ -23,9 +23,10 @@ type VM struct {
 	BaseImage string    `json:"base_image"`
 	BootDev   string    `json:"boot_dev"` // "disk" or "cdrom"
 	NetMode   string    `json:"net_mode"`
-	MACAddr   string    `json:"mac_address"`
-	SSHPort   int       `json:"ssh_port,omitempty"` // host port forwarded to VM:22 (user-mode only)
-	CreatedAt time.Time `json:"created_at"`
+	MACAddr      string    `json:"mac_address"`
+	SSHPort      int       `json:"ssh_port,omitempty"`      // host port forwarded to VM:22 (user-mode only)
+	RootPassword string    `json:"root_password,omitempty"` // stored plaintext password (local use only)
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // State represents runtime VM state, derived from process inspection.
@@ -38,14 +39,15 @@ const (
 
 // CreateVMOpts holds options for creating a new VM.
 type CreateVMOpts struct {
-	Name     string
-	CPUs     int
-	MemoryMB int
-	DiskSize string
-	Image    string // name of cached base image (e.g. "ubuntu-24.04.qcow2")
-	NetMode  string // "bridge" or "user"
-	SSHKey   string // public SSH key to authorize (optional)
-	UserData string // cloud-init user-data (optional, overrides default)
+	Name         string
+	CPUs         int
+	MemoryMB     int
+	DiskSize     string
+	Image        string // name of cached base image (e.g. "ubuntu-24.04.qcow2")
+	NetMode      string // "bridge" or "user"
+	SSHKey       string // public SSH key to authorize (optional)
+	RootPassword string // plaintext password; empty = auto-generate, "none" = no password
+	UserData     string // cloud-init user-data (optional, overrides everything)
 }
 
 func (o *CreateVMOpts) validate() error {
@@ -80,6 +82,7 @@ func (o *CreateVMOpts) validate() error {
 }
 
 // CreateVM creates a new VM: generates ID, creates disk, writes metadata.
+// The plaintext root password is stored in vm.RootPassword (empty if no password was set).
 func (e *Engine) CreateVM(opts CreateVMOpts) (*VM, error) {
 	if err := opts.validate(); err != nil {
 		return nil, fmt.Errorf("invalid options: %w", err)
@@ -89,6 +92,17 @@ func (e *Engine) CreateVM(opts CreateVMOpts) (*VM, error) {
 	if opts.SSHKey == "" {
 		if cfg, err := e.LoadConfig(); err == nil && cfg.DefaultSSHKey != "" {
 			opts.SSHKey = cfg.DefaultSSHKey
+		}
+	}
+
+	// Resolve root password: auto-generate if not specified, clear if "none"
+	password := opts.RootPassword
+	if opts.UserData == "" {
+		switch password {
+		case "none":
+			password = ""
+		case "":
+			password = generatePassword()
 		}
 	}
 
@@ -132,7 +146,7 @@ func (e *Engine) CreateVM(opts CreateVMOpts) (*VM, error) {
 	// Cloud-init is only useful for cloud images, not ISO installers.
 	if !iso {
 		ciPath := filepath.Join(vmDir, "cloud-init.iso")
-		if err := e.GenerateCloudInit(ciPath, opts.Name, opts.SSHKey, opts.UserData); err != nil {
+		if err := e.GenerateCloudInit(ciPath, opts.Name, opts.SSHKey, password, opts.UserData); err != nil {
 			_ = os.RemoveAll(vmDir)
 			return nil, fmt.Errorf("generate cloud-init: %w", err)
 		}
@@ -149,17 +163,18 @@ func (e *Engine) CreateVM(opts CreateVMOpts) (*VM, error) {
 	}
 
 	vm := &VM{
-		ID:        id,
-		Name:      opts.Name,
-		CPUs:      opts.CPUs,
-		MemoryMB:  opts.MemoryMB,
-		DiskSize:  opts.DiskSize,
-		BaseImage: opts.Image,
-		BootDev:   bootDev,
-		NetMode:   opts.NetMode,
-		MACAddr:   generateMAC(),
-		SSHPort:   sshPort,
-		CreatedAt: time.Now().UTC(),
+		ID:           id,
+		Name:         opts.Name,
+		CPUs:         opts.CPUs,
+		MemoryMB:     opts.MemoryMB,
+		DiskSize:     opts.DiskSize,
+		BaseImage:    opts.Image,
+		BootDev:      bootDev,
+		NetMode:      opts.NetMode,
+		MACAddr:      generateMAC(),
+		SSHPort:      sshPort,
+		RootPassword: password,
+		CreatedAt:    time.Now().UTC(),
 	}
 
 	if err := e.saveVM(vm); err != nil {
@@ -267,6 +282,16 @@ func (e *Engine) SetBootDev(idOrName, dev string) error {
 	return e.saveVM(vm)
 }
 
+// SetRootPassword updates the stored root password for a VM (local record only).
+func (e *Engine) SetRootPassword(idOrName, password string) error {
+	vm, err := e.GetVM(idOrName)
+	if err != nil {
+		return err
+	}
+	vm.RootPassword = password
+	return e.saveVM(vm)
+}
+
 func (e *Engine) saveVM(vm *VM) error {
 	data, err := json.MarshalIndent(vm, "", "  ")
 	if err != nil {
@@ -280,6 +305,18 @@ func generateID() string {
 	b := make([]byte, 4)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+const passwordChars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+func generatePassword() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	out := make([]byte, 16)
+	for i, c := range b {
+		out[i] = passwordChars[int(c)%len(passwordChars)]
+	}
+	return string(out)
 }
 
 const sshPortBase = 2222
