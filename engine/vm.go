@@ -12,6 +12,7 @@ import (
 )
 
 var validName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+var validPCIAddr = regexp.MustCompile(`^[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F]$`)
 
 // VM represents a virtual machine's persistent configuration.
 type VM struct {
@@ -104,6 +105,9 @@ func (o *CreateVMOpts) validate() error {
 	case "passthrough":
 		if o.PCIAddr == "" {
 			return fmt.Errorf("--pci-addr is required for passthrough GPU mode")
+		}
+		if !validPCIAddr.MatchString(o.PCIAddr) {
+			return fmt.Errorf("invalid PCI address %q: must match XX:XX.X format (e.g. 01:00.0)", o.PCIAddr)
 		}
 	default:
 		return fmt.Errorf("gpu mode must be 'none', 'virtio', or 'passthrough'")
@@ -355,6 +359,9 @@ func (e *Engine) UpdateVM(idOrName string, opts UpdateVMOpts) (*VM, error) {
 		case "passthrough":
 			if opts.PCIAddr == "" {
 				return nil, fmt.Errorf("PCI address is required for passthrough mode")
+			}
+			if !validPCIAddr.MatchString(opts.PCIAddr) {
+				return nil, fmt.Errorf("invalid PCI address %q: must match XX:XX.X format (e.g. 01:00.0)", opts.PCIAddr)
 			}
 		default:
 			return nil, fmt.Errorf("gpu mode must be 'none', 'virtio', or 'passthrough'")
