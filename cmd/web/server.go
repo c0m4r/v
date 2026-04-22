@@ -84,6 +84,7 @@ func registerRoutes(mux *http.ServeMux, e *engine.Engine) {
 	mux.HandleFunc("GET /api/vms", handleListVMs(e))
 	mux.HandleFunc("POST /api/vms", handleCreateVM(e))
 	mux.HandleFunc("GET /api/vms/{id}", handleGetVM(e))
+	mux.HandleFunc("PUT /api/vms/{id}", handleUpdateVM(e))
 	mux.HandleFunc("POST /api/vms/{id}/start", handleStartVM(e))
 	mux.HandleFunc("POST /api/vms/{id}/stop", handleStopVM(e))
 	mux.HandleFunc("POST /api/vms/{id}/force-stop", handleForceStopVM(e))

@@ -35,6 +35,10 @@ func Run(e *engine.Engine, cmd string, args []string) error {
 		return cmdNet(e, args)
 	case "set-boot":
 		return cmdSetBoot(e, args)
+	case "set-gpu":
+		return cmdSetGPU(e, args)
+	case "set-audio":
+		return cmdSetAudio(e, args)
 	case "config":
 		return cmdConfig(e, args)
 	default:

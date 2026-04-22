@@ -147,6 +147,23 @@ func handleDeleteVM(e *engine.Engine) http.HandlerFunc {
 	}
 }
 
+func handleUpdateVM(e *engine.Engine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var opts engine.UpdateVMOpts
+		if err := json.NewDecoder(r.Body).Decode(&opts); err != nil {
+			jsonError(w, 400, "invalid JSON: "+err.Error())
+			return
+		}
+		vm, err := e.UpdateVM(r.PathValue("id"), opts)
+		if err != nil {
+			jsonError(w, 400, err.Error())
+			return
+		}
+		state, _ := e.VMState(vm.ID)
+		jsonResponse(w, 200, vmResponse{VM: vm, State: state})
+	}
+}
+
 func handleSetBoot(e *engine.Engine) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {

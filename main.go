@@ -23,7 +23,7 @@ Commands:
   create      Create a new VM
   list        List all VMs
   info        Show VM details
-  start       Start a VM (--graphical / -g for a display window)
+  start       Start a VM
   stop        Gracefully stop a VM (ACPI shutdown)
   force-stop  Force stop a VM
   restart     Restart a VM
@@ -34,6 +34,9 @@ Commands:
   image list  List cached images
 
   disk create Create a standalone disk image
+
+  set-gpu     Set GPU mode: none, virtio, passthrough (e.g. v set-gpu myvm virtio)
+  set-audio   Set audio backend: none, pipewire, pa, alsa (e.g. v set-audio myvm pipewire)
 
   config         Show configuration
   config set     Set a config value (e.g. v config set ssh-key ~/.ssh/id_ed25519.pub)

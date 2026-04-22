@@ -23,6 +23,9 @@ type VM struct {
 	BaseImage string    `json:"base_image"`
 	BootDev   string    `json:"boot_dev"` // "disk" or "cdrom"
 	NetMode   string    `json:"net_mode"`
+	GPU       string    `json:"gpu,omitempty"`      // "none", "virtio", "passthrough"
+	PCIAddr   string    `json:"pci_addr,omitempty"` // PCI address for passthrough (e.g. "01:00.0")
+	Audio     string    `json:"audio,omitempty"`    // "none", "pa", "pipewire", "alsa"
 	MACAddr      string    `json:"mac_address"`
 	SSHPort      int       `json:"ssh_port,omitempty"`      // host port forwarded to VM:22 (user-mode only)
 	RootPassword string    `json:"root_password,omitempty"` // stored plaintext password (local use only)
@@ -45,9 +48,23 @@ type CreateVMOpts struct {
 	DiskSize     string
 	Image        string // name of cached base image (e.g. "ubuntu-24.04.qcow2")
 	NetMode      string // "bridge" or "user"
+	GPU          string // "none", "virtio", "passthrough"
+	PCIAddr      string // PCI address for passthrough mode (e.g. "01:00.0")
+	Audio        string // "none", "pa", "pipewire", "alsa"
 	SSHKey       string // public SSH key to authorize (optional)
 	RootPassword string // plaintext password; empty = auto-generate, "none" = no password
 	UserData     string // cloud-init user-data (optional, overrides everything)
+}
+
+// UpdateVMOpts holds fields that can be changed on a stopped VM.
+// Zero/empty values mean "leave unchanged" — the UI always sends all fields.
+type UpdateVMOpts struct {
+	CPUs     int    `json:"CPUs"`
+	MemoryMB int    `json:"MemoryMB"`
+	GPU      string `json:"GPU"`
+	PCIAddr  string `json:"PCIAddr"`
+	Audio    string `json:"Audio"`
+	BootDev  string `json:"BootDev"`
 }
 
 func (o *CreateVMOpts) validate() error {
@@ -77,6 +94,28 @@ func (o *CreateVMOpts) validate() error {
 	}
 	if o.NetMode != "user" && o.NetMode != "bridge" {
 		return fmt.Errorf("net mode must be 'user' or 'bridge'")
+	}
+	if o.GPU == "" {
+		o.GPU = "none"
+	}
+	switch o.GPU {
+	case "none", "virtio":
+		// ok
+	case "passthrough":
+		if o.PCIAddr == "" {
+			return fmt.Errorf("--pci-addr is required for passthrough GPU mode")
+		}
+	default:
+		return fmt.Errorf("gpu mode must be 'none', 'virtio', or 'passthrough'")
+	}
+	if o.Audio == "" {
+		o.Audio = "none"
+	}
+	switch o.Audio {
+	case "none", "pa", "pipewire", "alsa":
+		// ok
+	default:
+		return fmt.Errorf("audio mode must be 'none', 'pa', 'pipewire', or 'alsa'")
 	}
 	return nil
 }
@@ -171,6 +210,9 @@ func (e *Engine) CreateVM(opts CreateVMOpts) (*VM, error) {
 		BaseImage:    opts.Image,
 		BootDev:      bootDev,
 		NetMode:      opts.NetMode,
+		GPU:          opts.GPU,
+		PCIAddr:      opts.PCIAddr,
+		Audio:        opts.Audio,
 		MACAddr:      generateMAC(),
 		SSHPort:      sshPort,
 		RootPassword: password,
@@ -280,6 +322,78 @@ func (e *Engine) SetBootDev(idOrName, dev string) error {
 
 	vm.BootDev = dev
 	return e.saveVM(vm)
+}
+
+// UpdateVM applies the given opts to a stopped VM and persists the result.
+// Zero/empty values in opts are skipped (field unchanged).
+func (e *Engine) UpdateVM(idOrName string, opts UpdateVMOpts) (*VM, error) {
+	vm, err := e.GetVM(idOrName)
+	if err != nil {
+		return nil, err
+	}
+	state, err := e.VMState(vm.ID)
+	if err != nil {
+		return nil, err
+	}
+	if state == StateRunning {
+		return nil, fmt.Errorf("VM %q is running; stop it first", vm.Name)
+	}
+
+	if opts.CPUs > 0 {
+		vm.CPUs = opts.CPUs
+	}
+	if opts.MemoryMB > 0 {
+		if opts.MemoryMB < 128 {
+			return nil, fmt.Errorf("memory must be at least 128 MB")
+		}
+		vm.MemoryMB = opts.MemoryMB
+	}
+	if opts.GPU != "" {
+		switch opts.GPU {
+		case "none", "virtio":
+			// ok
+		case "passthrough":
+			if opts.PCIAddr == "" {
+				return nil, fmt.Errorf("PCI address is required for passthrough mode")
+			}
+		default:
+			return nil, fmt.Errorf("gpu mode must be 'none', 'virtio', or 'passthrough'")
+		}
+		vm.GPU = opts.GPU
+		vm.PCIAddr = opts.PCIAddr
+	}
+	if opts.Audio != "" {
+		switch opts.Audio {
+		case "none", "pa", "pipewire", "alsa":
+			// ok
+		default:
+			return nil, fmt.Errorf("audio mode must be 'none', 'pa', 'pipewire', or 'alsa'")
+		}
+		vm.Audio = opts.Audio
+	}
+	if opts.BootDev != "" {
+		if opts.BootDev != "disk" && opts.BootDev != "cdrom" {
+			return nil, fmt.Errorf("boot device must be 'disk' or 'cdrom'")
+		}
+		vm.BootDev = opts.BootDev
+	}
+
+	if err := e.saveVM(vm); err != nil {
+		return nil, err
+	}
+	return vm, nil
+}
+
+// SetGPU updates the GPU mode for a stopped VM.
+func (e *Engine) SetGPU(idOrName, mode, pciAddr string) error {
+	_, err := e.UpdateVM(idOrName, UpdateVMOpts{GPU: mode, PCIAddr: pciAddr})
+	return err
+}
+
+// SetAudio updates the audio backend for a stopped VM.
+func (e *Engine) SetAudio(idOrName, mode string) error {
+	_, err := e.UpdateVM(idOrName, UpdateVMOpts{Audio: mode})
+	return err
 }
 
 // SetRootPassword updates the stored root password for a VM (local record only).

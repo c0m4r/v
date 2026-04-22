@@ -37,18 +37,12 @@ func (e *Engine) VMState(id string) (State, error) {
 	return StateRunning, nil
 }
 
-// StartVM launches QEMU for the given VM in headless mode.
+// StartVM launches QEMU for the given VM using the GPU mode stored in its config.
 func (e *Engine) StartVM(idOrName string) error {
-	return e.startVM(idOrName, false)
+	return e.startVM(idOrName)
 }
 
-// StartVMGraphical launches QEMU for the given VM with a graphical display window.
-// The command returns immediately while the window stays open.
-func (e *Engine) StartVMGraphical(idOrName string) error {
-	return e.startVM(idOrName, true)
-}
-
-func (e *Engine) startVM(idOrName string, graphical bool) error {
+func (e *Engine) startVM(idOrName string) error {
 	vm, err := e.GetVM(idOrName)
 	if err != nil {
 		return err
@@ -103,13 +97,27 @@ func (e *Engine) startVM(idOrName string, graphical bool) error {
 		"-serial", fmt.Sprintf("unix:%s,server=on,wait=off", consolePath),
 	)
 
-	if graphical {
-		// No -display flag: let QEMU auto-select SDL/GTK based on the environment.
-		// -daemonize is kept so the command returns immediately while the window lives.
-		args = append(args, "-daemonize", "-pidfile", pidPath)
-	} else {
-		args = append(args, "-display", "none", "-daemonize", "-pidfile", pidPath)
+	switch vm.GPU {
+	case "virtio":
+		// virtio-vga supports dynamic resolution; GTK provides fullscreen (Ctrl+Alt+F).
+		args = append(args, "-device", "virtio-vga", "-display", "gtk")
+	case "passthrough":
+		// GPU output goes through the card's physical ports; no emulated display needed.
+		args = append(args, "-device", fmt.Sprintf("vfio-pci,host=%s,multifunction=on", vm.PCIAddr), "-display", "none")
+	default: // "none" or unset — headless
+		args = append(args, "-display", "none")
 	}
+
+	switch vm.Audio {
+	case "pa", "pipewire", "alsa":
+		args = append(args,
+			"-audiodev", fmt.Sprintf("%s,id=snd0", vm.Audio),
+			"-device", "ich9-intel-hda",
+			"-device", "hda-duplex,audiodev=snd0",
+		)
+	}
+
+	args = append(args, "-daemonize", "-pidfile", pidPath)
 
 	// Networking
 	switch vm.NetMode {

@@ -65,6 +65,7 @@ function vmActions(vm) {
   const btns = [];
   if (vm.state === "stopped") {
     btns.push(actionBtn(vm.id, "start", "Start", "btn-primary"));
+    btns.push(`<button class="btn btn-small" onclick="openVMSettings('${vm.id}','${esc(vm.name)}')">Settings</button>`);
     btns.push(actionBtn(vm.id, "delete", "Delete", "btn-danger"));
   } else {
     btns.push(actionBtn(vm.id, "stop", "Stop", ""));
@@ -226,6 +227,11 @@ document.getElementById("btn-create").addEventListener("click", async () => {
   document.getElementById("create-dialog").showModal();
 });
 
+// Show/hide PCI addr field based on GPU selection in create dialog
+document.getElementById("create-gpu-select").addEventListener("change", (e) => {
+  document.getElementById("create-pci-label").hidden = e.target.value !== "passthrough";
+});
+
 document.getElementById("create-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = new FormData(e.target);
@@ -256,6 +262,9 @@ document.getElementById("create-form").addEventListener("submit", async (e) => {
       DiskSize: form.get("disk_size"),
       Image: image,
       NetMode: form.get("net_mode"),
+      GPU: form.get("gpu") || "none",
+      PCIAddr: form.get("pci_addr") || "",
+      Audio: form.get("audio") || "none",
       SSHKey: form.get("ssh_key") || "",
       RootPassword: rootPassword,
     });
@@ -264,6 +273,7 @@ document.getElementById("create-form").addEventListener("submit", async (e) => {
     e.target.reset();
     document.getElementById("no-password-check").checked = false;
     document.getElementById("create-pw-input").disabled = false;
+    document.getElementById("create-pci-label").hidden = true;
 
     await loadVMs();
   } catch (err) {
@@ -271,6 +281,62 @@ document.getElementById("create-form").addEventListener("submit", async (e) => {
   } finally {
     btn.classList.remove("btn-loading");
     btn.textContent = "Create";
+  }
+});
+
+// --- VM Settings Dialog ---
+
+let vmSettingsId = null;
+
+async function openVMSettings(id, name) {
+  vmSettingsId = id;
+  document.getElementById("vm-settings-title").textContent = `Settings — ${name}`;
+
+  try {
+    const vm = await api("GET", `/vms/${id}`);
+    const form = document.getElementById("vm-settings-form");
+    form.elements["cpus"].value = vm.cpus;
+    form.elements["memory_mb"].value = vm.memory_mb;
+    const gpu = vm.gpu || "none";
+    form.elements["gpu"].value = gpu;
+    form.elements["pci_addr"].value = vm.pci_addr || "";
+    document.getElementById("settings-pci-label").hidden = gpu !== "passthrough";
+    form.elements["audio"].value = vm.audio || "none";
+    form.elements["boot_dev"].value = vm.boot_dev || "disk";
+  } catch (err) {
+    alert("Error loading VM: " + err.message);
+    return;
+  }
+
+  document.getElementById("vm-settings-dialog").showModal();
+}
+
+// Show/hide PCI addr field based on GPU selection in settings dialog
+document.getElementById("settings-gpu-select").addEventListener("change", (e) => {
+  document.getElementById("settings-pci-label").hidden = e.target.value !== "passthrough";
+});
+
+document.getElementById("vm-settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const form = new FormData(e.target);
+  const btn = e.target.querySelector('[type="submit"]');
+  btn.classList.add("btn-loading");
+
+  try {
+    await api("PUT", `/vms/${vmSettingsId}`, {
+      CPUs: parseInt(form.get("cpus")),
+      MemoryMB: parseInt(form.get("memory_mb")),
+      GPU: form.get("gpu"),
+      PCIAddr: form.get("pci_addr") || "",
+      Audio: form.get("audio"),
+      BootDev: form.get("boot_dev"),
+    });
+    document.getElementById("vm-settings-dialog").close();
+    await loadVMs();
+  } catch (err) {
+    alert("Error: " + err.message);
+  } finally {
+    btn.classList.remove("btn-loading");
   }
 });
 

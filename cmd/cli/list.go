@@ -70,6 +70,20 @@ func cmdInfo(e *engine.Engine, args []string) error {
 	fmt.Printf("Image:     %s\n", vm.BaseImage)
 	fmt.Printf("Boot:      %s\n", vm.BootDev)
 	fmt.Printf("Network:   %s\n", vm.NetMode)
+	gpu := vm.GPU
+	if gpu == "" {
+		gpu = "none"
+	}
+	if vm.PCIAddr != "" {
+		fmt.Printf("GPU:       %s (%s)\n", gpu, vm.PCIAddr)
+	} else {
+		fmt.Printf("GPU:       %s\n", gpu)
+	}
+	audio := vm.Audio
+	if audio == "" {
+		audio = "none"
+	}
+	fmt.Printf("Audio:     %s\n", audio)
 	fmt.Printf("MAC:       %s\n", vm.MACAddr)
 	fmt.Printf("Created:   %s\n", vm.CreatedAt.Format("2006-01-02 15:04:05"))
 

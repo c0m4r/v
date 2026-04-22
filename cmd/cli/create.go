@@ -15,6 +15,9 @@ func cmdCreate(e *engine.Engine, args []string) error {
 	memory := fs.Int("memory", 512, "Memory in MB")
 	disk := fs.String("disk", "10G", "Disk size (e.g. 10G, 20G)")
 	netMode := fs.String("net", "user", "Network mode: user or bridge")
+	gpu := fs.String("gpu", "none", "GPU mode: none (headless), virtio, or passthrough")
+	pciAddr := fs.String("pci-addr", "", "Host PCI address for passthrough mode (e.g. 01:00.0)")
+	audio := fs.String("audio", "none", "Audio backend: none, pipewire, pa, or alsa")
 	sshKey := fs.String("ssh-key", "", "Public SSH key string or path to .pub file")
 	password := fs.String("password", "", `Root password (leave blank to auto-generate, "none" for no password)`)
 	userData := fs.String("user-data", "", "Path to cloud-init user-data file")
@@ -50,6 +53,9 @@ func cmdCreate(e *engine.Engine, args []string) error {
 		DiskSize:     *disk,
 		Image:        imageName,
 		NetMode:      *netMode,
+		GPU:          *gpu,
+		PCIAddr:      *pciAddr,
+		Audio:        *audio,
 		SSHKey:       sshKeyContent,
 		RootPassword: *password,
 		UserData:     userDataContent,

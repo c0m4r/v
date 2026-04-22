@@ -7,20 +7,8 @@ import (
 )
 
 func cmdStart(e *engine.Engine, args []string) error {
-	graphical := false
-	filtered := args[:0]
-	for _, a := range args {
-		switch a {
-		case "--graphical", "-g":
-			graphical = true
-		default:
-			filtered = append(filtered, a)
-		}
-	}
-	args = filtered
-
 	if len(args) == 0 {
-		return fmt.Errorf("usage: v start [--graphical] <name|id>")
+		return fmt.Errorf("usage: v start <name|id>")
 	}
 
 	vm, err := e.GetVM(args[0])
@@ -28,24 +16,52 @@ func cmdStart(e *engine.Engine, args []string) error {
 		return err
 	}
 
-	if graphical {
-		if err := e.StartVMGraphical(vm.ID); err != nil {
-			return err
-		}
-	} else {
-		if err := e.StartVM(vm.ID); err != nil {
-			return err
-		}
+	if err := e.StartVM(vm.ID); err != nil {
+		return err
 	}
 
 	fmt.Printf("Started VM %q\n", vm.Name)
-	if graphical {
-		fmt.Printf("  Graphical display window opened\n")
+	switch vm.GPU {
+	case "virtio":
+		fmt.Printf("  GPU: virtio (GTK window opened, fullscreen: Ctrl+Alt+F)\n")
+	case "passthrough":
+		fmt.Printf("  GPU: passthrough (%s) — output via physical display port\n", vm.PCIAddr)
 	}
 	if vm.BootDev == "cdrom" {
 		fmt.Printf("  Booting from ISO: %s\n", vm.BaseImage)
 		fmt.Printf("  After installation, switch to disk boot with: v set-boot %s disk\n", vm.Name)
 	}
+	return nil
+}
+
+func cmdSetGPU(e *engine.Engine, args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: v set-gpu <name|id> <none|virtio|passthrough> [<pci-addr>]")
+	}
+	name, mode := args[0], args[1]
+	pciAddr := ""
+	if len(args) >= 3 {
+		pciAddr = args[2]
+	}
+	if err := e.SetGPU(name, mode, pciAddr); err != nil {
+		return err
+	}
+	if mode == "passthrough" {
+		fmt.Printf("GPU mode set to %q (PCI: %s)\n", mode, pciAddr)
+	} else {
+		fmt.Printf("GPU mode set to %q\n", mode)
+	}
+	return nil
+}
+
+func cmdSetAudio(e *engine.Engine, args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: v set-audio <name|id> <none|pipewire|pa|alsa>")
+	}
+	if err := e.SetAudio(args[0], args[1]); err != nil {
+		return err
+	}
+	fmt.Printf("Audio mode set to %q\n", args[1])
 	return nil
 }
 
