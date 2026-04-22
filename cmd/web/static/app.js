@@ -12,24 +12,61 @@ let consoleResizeObserver = null;
 let refreshTimer = null;
 let serverIsRoot = false;
 
+// --- Auth token ---
+// Read from URL query param on first load; persist in sessionStorage for
+// subsequent navigation and page refreshes within the same browser session.
+
+let authToken = "";
+(function () {
+  const params = new URLSearchParams(location.search);
+  const urlToken = params.get("token");
+  if (urlToken) {
+    authToken = urlToken;
+    sessionStorage.setItem("v-token", urlToken);
+    // Remove token from URL bar without reloading so it doesn't linger in
+    // browser history or server logs.
+    const clean = new URL(location.href);
+    clean.searchParams.delete("token");
+    history.replaceState({}, "", clean.toString());
+  } else {
+    authToken = sessionStorage.getItem("v-token") || "";
+  }
+})();
+
 // --- API helpers ---
 
 async function api(method, path, body) {
-  const opts = { method, headers: {} };
+  const opts = {
+    method,
+    headers: { "Authorization": `Bearer ${authToken}` },
+  };
   if (body) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
   const resp = await fetch(API + path, opts);
+  if (resp.status === 401) {
+    showAuthError();
+    throw new Error("unauthorized");
+  }
   const data = await resp.json();
   if (!resp.ok) throw new Error(data.error || resp.statusText);
   return data;
 }
 
-// --- VM List ---
+function showAuthError() {
+  document.body.innerHTML = `
+    <div style="padding:3rem;text-align:center;font-family:monospace">
+      <h2 style="color:#f85149">Unauthorized</h2>
+      <p style="margin-top:1rem;color:#8b949e">
+        Open the URL printed by <code>v serve</code> to authenticate,<br>
+        or paste the token from the terminal into the address bar as<br>
+        <code>http://${location.host}/?token=YOUR_TOKEN</code>
+      </p>
+    </div>`;
+}
 
-// Passwords are kept out of the DOM to avoid single-quote breakout in onclick attrs.
-const vmPasswords = {};
+// --- VM List ---
 
 async function loadVMs() {
   try {
@@ -43,9 +80,6 @@ async function loadVMs() {
       noVMs.hidden = false;
       return;
     }
-
-    // Refresh password cache
-    for (const vm of vms) vmPasswords[vm.id] = vm.root_password || "";
 
     table.hidden = false;
     noVMs.hidden = true;
@@ -63,7 +97,7 @@ async function loadVMs() {
       </tr>
     `).join("");
   } catch (err) {
-    console.error("Failed to load VMs:", err);
+    if (err.message !== "unauthorized") console.error("Failed to load VMs:", err);
   }
 }
 
@@ -92,7 +126,6 @@ async function vmAction(btn, id, action) {
     if (!confirm("Delete this VM? This cannot be undone.")) return;
   }
 
-  // Set loading state on the clicked button
   btn.classList.add("btn-loading");
   const origText = btn.textContent;
   btn.textContent = origText;
@@ -105,7 +138,7 @@ async function vmAction(btn, id, action) {
     }
     await loadVMs();
   } catch (err) {
-    alert("Error: " + err.message);
+    if (err.message !== "unauthorized") alert("Error: " + err.message);
     btn.classList.remove("btn-loading");
   }
 }
@@ -117,7 +150,7 @@ document.getElementById("btn-settings").addEventListener("click", async () => {
     const cfg = await api("GET", "/config");
     document.getElementById("settings-ssh-key").value = cfg.default_ssh_key || "";
   } catch (err) {
-    console.error("Failed to load config:", err);
+    if (err.message !== "unauthorized") console.error("Failed to load config:", err);
   }
   document.getElementById("settings-dialog").showModal();
 });
@@ -131,7 +164,7 @@ document.getElementById("settings-form").addEventListener("submit", async (e) =>
     });
     document.getElementById("settings-dialog").close();
   } catch (err) {
-    alert("Error: " + err.message);
+    if (err.message !== "unauthorized") alert("Error: " + err.message);
   }
 });
 
@@ -167,7 +200,7 @@ async function loadImages() {
       select.appendChild(group);
     }
   } catch (err) {
-    console.error("Failed to load images:", err);
+    if (err.message !== "unauthorized") console.error("Failed to load images:", err);
   }
 }
 
@@ -314,7 +347,7 @@ document.getElementById("create-form").addEventListener("submit", async (e) => {
 
     await loadVMs();
   } catch (err) {
-    alert("Error: " + err.message);
+    if (err.message !== "unauthorized") alert("Error: " + err.message);
   } finally {
     btn.classList.remove("btn-loading");
     btn.textContent = "Create";
@@ -341,7 +374,7 @@ async function openVMSettings(id, name) {
     form.elements["audio"].value = vm.audio || "none";
     form.elements["boot_dev"].value = vm.boot_dev || "disk";
   } catch (err) {
-    alert("Error loading VM: " + err.message);
+    if (err.message !== "unauthorized") alert("Error loading VM: " + err.message);
     return;
   }
 
@@ -371,7 +404,7 @@ document.getElementById("vm-settings-form").addEventListener("submit", async (e)
     document.getElementById("vm-settings-dialog").close();
     await loadVMs();
   } catch (err) {
-    alert("Error: " + err.message);
+    if (err.message !== "unauthorized") alert("Error: " + err.message);
   } finally {
     btn.classList.remove("btn-loading");
   }
@@ -399,7 +432,8 @@ function connectConsole() {
   setConsoleStatus("Connecting...", "reconnecting");
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  consoleWS = new WebSocket(`${proto}//${location.host}/api/vms/${consoleVMId}/console`);
+  const wsURL = `${proto}//${location.host}/api/vms/${consoleVMId}/console?token=${encodeURIComponent(authToken)}`;
+  consoleWS = new WebSocket(wsURL);
   consoleWS.binaryType = "arraybuffer";
 
   consoleWS.onopen = () => {
@@ -514,14 +548,25 @@ function closeConsole() {
 
 let pwDialogVMId = null;
 
-function openPasswordDialog(id, name) {
+async function openPasswordDialog(id, name) {
   pwDialogVMId = id;
   document.getElementById("pw-dialog-title").textContent = `Root Password — ${name}`;
   const display = document.getElementById("pw-display");
-  display.value = vmPasswords[id] || "";
+  display.value = "";
   display.type = "password";
   document.getElementById("pw-toggle-btn").textContent = "Show";
   document.getElementById("password-dialog").showModal();
+
+  // Fetch the password from the dedicated authenticated endpoint.
+  try {
+    const data = await api("GET", `/vms/${id}/password`);
+    display.value = data.password || "(none set)";
+  } catch (err) {
+    if (err.message !== "unauthorized") {
+      display.value = "";
+      alert("Failed to load password: " + err.message);
+    }
+  }
 }
 
 function togglePwVisibility() {

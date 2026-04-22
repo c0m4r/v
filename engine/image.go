@@ -1,12 +1,15 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ImageInfo holds metadata about a cached image.
@@ -14,6 +17,72 @@ type ImageInfo struct {
 	Name string
 	Size int64
 	Path string
+}
+
+// maxImageBytes caps image downloads at 16 GiB.
+const maxImageBytes = 16 << 30
+
+var privateRanges []*net.IPNet
+
+func init() {
+	for _, cidr := range []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"127.0.0.0/8",
+		"169.254.0.0/16",
+		"::1/128",
+		"fc00::/7",
+		"fe80::/10",
+		"100.64.0.0/10",
+	} {
+		_, block, _ := net.ParseCIDR(cidr)
+		if block != nil {
+			privateRanges = append(privateRanges, block)
+		}
+	}
+}
+
+func isPrivateIP(ip net.IP) bool {
+	if ip4 := ip.To4(); ip4 != nil {
+		ip = ip4
+	}
+	for _, block := range privateRanges {
+		if block.Contains(ip) {
+			return true
+		}
+	}
+	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
+}
+
+// safePullClient returns an HTTP client that blocks private/loopback addresses
+// and caps response size, preventing SSRF when downloading images.
+func safePullClient() *http.Client {
+	return &http.Client{
+		Timeout: 60 * time.Minute,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				host, port, err := net.SplitHostPort(addr)
+				if err != nil {
+					return nil, fmt.Errorf("invalid address %q: %w", addr, err)
+				}
+				ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+				if err != nil {
+					return nil, fmt.Errorf("resolve %s: %w", host, err)
+				}
+				if len(ips) == 0 {
+					return nil, fmt.Errorf("no addresses found for %s", host)
+				}
+				for _, ipAddr := range ips {
+					if isPrivateIP(ipAddr.IP) {
+						return nil, fmt.Errorf("download blocked: %s resolves to a private/loopback address (%s)", host, ipAddr.IP)
+					}
+				}
+				// Dial by resolved IP to prevent TOCTOU DNS rebinding.
+				return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+			},
+		},
+	}
 }
 
 // PullImage downloads a cloud image by name or URL into the image cache.
@@ -26,7 +95,8 @@ func (e *Engine) PullImage(nameOrURL string, progress func(int64)) (string, erro
 		return destPath, nil // already cached
 	}
 
-	resp, err := http.Get(url)
+	client := safePullClient()
+	resp, err := client.Get(url)
 	if err != nil {
 		return "", fmt.Errorf("download image: %w", err)
 	}
@@ -55,6 +125,9 @@ func (e *Engine) PullImage(nameOrURL string, progress func(int64)) (string, erro
 				return "", fmt.Errorf("write image: %w", err)
 			}
 			written += int64(n)
+			if written > maxImageBytes {
+				return "", fmt.Errorf("image exceeds maximum allowed size (%d GiB)", maxImageBytes>>30)
+			}
 			if progress != nil {
 				progress(written)
 			}

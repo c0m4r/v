@@ -8,11 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"strings"
 	"time"
 )
 
 var validName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 var validPCIAddr = regexp.MustCompile(`^[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F]$`)
+var validDiskSize = regexp.MustCompile(`^[0-9]+[KMGTkmgt]$`)
 
 // VM represents a virtual machine's persistent configuration.
 type VM struct {
@@ -68,6 +71,34 @@ type UpdateVMOpts struct {
 	BootDev  string `json:"BootDev"`
 }
 
+// maxAllowedCPUs returns the CPU cap: 4× host logical CPUs, max 256.
+func maxAllowedCPUs() int {
+	n := runtime.NumCPU() * 4
+	if n > 256 {
+		return 256
+	}
+	return n
+}
+
+// maxAllowedMemoryMB returns the memory cap: total host RAM in MB, read from
+// /proc/meminfo. Falls back to 65536 (64 GiB) if the file is unreadable.
+func maxAllowedMemoryMB() int {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 65536
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if strings.HasPrefix(line, "MemTotal:") {
+			var kb int
+			_, _ = fmt.Sscanf(line, "MemTotal: %d kB", &kb)
+			if kb > 0 {
+				return kb / 1024
+			}
+		}
+	}
+	return 65536
+}
+
 func (o *CreateVMOpts) validate() error {
 	if o.Name == "" {
 		return fmt.Errorf("name is required")
@@ -81,14 +112,34 @@ func (o *CreateVMOpts) validate() error {
 	if o.CPUs < 1 {
 		o.CPUs = 1
 	}
+	if maxCPUs := maxAllowedCPUs(); o.CPUs > maxCPUs {
+		return fmt.Errorf("CPUs must not exceed %d (4× host logical CPUs)", maxCPUs)
+	}
 	if o.MemoryMB < 128 {
 		o.MemoryMB = 512
+	}
+	if maxMem := maxAllowedMemoryMB(); o.MemoryMB > maxMem {
+		return fmt.Errorf("memory must not exceed %d MB (host total RAM)", maxMem)
 	}
 	if o.DiskSize == "" {
 		o.DiskSize = "10G"
 	}
+	if !validDiskSize.MatchString(o.DiskSize) {
+		return fmt.Errorf("disk size must be a positive number followed by K, M, G, or T (e.g. 10G)")
+	}
 	if o.Image == "" {
 		return fmt.Errorf("image is required")
+	}
+	// Reject path traversal in image name.
+	if strings.ContainsAny(o.Image, "/\\\x00") || strings.Contains(o.Image, "..") {
+		return fmt.Errorf("image name must not contain path separators or directory traversal")
+	}
+	// Reject YAML-injection characters in password and SSH key.
+	if strings.ContainsAny(o.RootPassword, "\n\r\x00") {
+		return fmt.Errorf("password must not contain newlines or null bytes")
+	}
+	if strings.ContainsAny(o.SSHKey, "\n\r\x00") {
+		return fmt.Errorf("SSH key must not contain newlines or null bytes")
 	}
 	if o.NetMode == "" {
 		o.NetMode = "user"
@@ -160,8 +211,11 @@ func (e *Engine) CreateVM(opts CreateVMOpts) (*VM, error) {
 		}
 	}
 
-	// Verify base image exists
+	// Verify base image exists and is confined to the image directory.
 	baseImage := filepath.Join(e.ImageDir, opts.Image)
+	if !strings.HasPrefix(filepath.Clean(baseImage)+string(os.PathSeparator), filepath.Clean(e.ImageDir)+string(os.PathSeparator)) {
+		return nil, fmt.Errorf("image %q escapes the image directory", opts.Image)
+	}
 	if _, err := os.Stat(baseImage); err != nil {
 		return nil, fmt.Errorf("base image %q not found (run 'v image pull' first)", opts.Image)
 	}
@@ -344,11 +398,17 @@ func (e *Engine) UpdateVM(idOrName string, opts UpdateVMOpts) (*VM, error) {
 	}
 
 	if opts.CPUs > 0 {
+		if maxCPUs := maxAllowedCPUs(); opts.CPUs > maxCPUs {
+			return nil, fmt.Errorf("CPUs must not exceed %d (4× host logical CPUs)", maxCPUs)
+		}
 		vm.CPUs = opts.CPUs
 	}
 	if opts.MemoryMB > 0 {
 		if opts.MemoryMB < 128 {
 			return nil, fmt.Errorf("memory must be at least 128 MB")
+		}
+		if maxMem := maxAllowedMemoryMB(); opts.MemoryMB > maxMem {
+			return nil, fmt.Errorf("memory must not exceed %d MB (host total RAM)", maxMem)
 		}
 		vm.MemoryMB = opts.MemoryMB
 	}

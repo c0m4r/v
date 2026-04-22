@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/c0m4r/v/engine"
 )
@@ -18,10 +19,46 @@ func jsonError(w http.ResponseWriter, status int, msg string) {
 	jsonResponse(w, status, map[string]string{"error": msg})
 }
 
+// vmResponse is the public VM representation served by the API.
+// RootPassword is intentionally omitted — use GET /api/vms/{id}/password instead.
 type vmResponse struct {
-	*engine.VM
-	State engine.State `json:"state"`
-	IP    string       `json:"ip"`
+	ID        string       `json:"id"`
+	Name      string       `json:"name"`
+	CPUs      int          `json:"cpus"`
+	MemoryMB  int          `json:"memory_mb"`
+	DiskSize  string       `json:"disk_size"`
+	BaseImage string       `json:"base_image"`
+	BootDev   string       `json:"boot_dev"`
+	NetMode   string       `json:"net_mode"`
+	GPU       string       `json:"gpu,omitempty"`
+	PCIAddr   string       `json:"pci_addr,omitempty"`
+	Audio     string       `json:"audio,omitempty"`
+	MACAddr   string       `json:"mac_address"`
+	SSHPort   int          `json:"ssh_port,omitempty"`
+	CreatedAt time.Time    `json:"created_at"`
+	State     engine.State `json:"state"`
+	IP        string       `json:"ip"`
+}
+
+func toVMResponse(vm *engine.VM, state engine.State, ip string) vmResponse {
+	return vmResponse{
+		ID:        vm.ID,
+		Name:      vm.Name,
+		CPUs:      vm.CPUs,
+		MemoryMB:  vm.MemoryMB,
+		DiskSize:  vm.DiskSize,
+		BaseImage: vm.BaseImage,
+		BootDev:   vm.BootDev,
+		NetMode:   vm.NetMode,
+		GPU:       vm.GPU,
+		PCIAddr:   vm.PCIAddr,
+		Audio:     vm.Audio,
+		MACAddr:   vm.MACAddr,
+		SSHPort:   vm.SSHPort,
+		CreatedAt: vm.CreatedAt,
+		State:     state,
+		IP:        ip,
+	}
 }
 
 func handleListVMs(e *engine.Engine) http.HandlerFunc {
@@ -39,7 +76,7 @@ func handleListVMs(e *engine.Engine) http.HandlerFunc {
 			if state == engine.StateRunning {
 				ip = e.VMIPAddress(vm)
 			}
-			result = append(result, vmResponse{VM: vm, State: state, IP: ip})
+			result = append(result, toVMResponse(vm, state, ip))
 		}
 		jsonResponse(w, 200, result)
 	}
@@ -59,7 +96,20 @@ func handleCreateVM(e *engine.Engine) http.HandlerFunc {
 			return
 		}
 
-		jsonResponse(w, 201, vmResponse{VM: vm, State: engine.StateStopped})
+		jsonResponse(w, 201, toVMResponse(vm, engine.StateStopped, ""))
+	}
+}
+
+// handleGetVMPassword returns the stored root password for a VM.
+// Kept on a dedicated authenticated endpoint — never included in list responses.
+func handleGetVMPassword(e *engine.Engine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vm, err := e.GetVM(r.PathValue("id"))
+		if err != nil {
+			jsonError(w, 404, err.Error())
+			return
+		}
+		jsonResponse(w, 200, map[string]string{"password": vm.RootPassword})
 	}
 }
 
@@ -93,7 +143,7 @@ func handleGetVM(e *engine.Engine) http.HandlerFunc {
 		if state == engine.StateRunning {
 			ip = e.VMIPAddress(vm)
 		}
-		jsonResponse(w, 200, vmResponse{VM: vm, State: state, IP: ip})
+		jsonResponse(w, 200, toVMResponse(vm, state, ip))
 	}
 }
 
@@ -160,7 +210,7 @@ func handleUpdateVM(e *engine.Engine) http.HandlerFunc {
 			return
 		}
 		state, _ := e.VMState(vm.ID)
-		jsonResponse(w, 200, vmResponse{VM: vm, State: state})
+		jsonResponse(w, 200, toVMResponse(vm, state, ""))
 	}
 }
 

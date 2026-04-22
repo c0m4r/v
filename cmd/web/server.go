@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,10 +30,16 @@ func Serve(e *engine.Engine, args []string) error {
 		return err
 	}
 
+	tok, err := loadOrGenerateToken(e.DataDir)
+	if err != nil {
+		return fmt.Errorf("auth token: %w", err)
+	}
+
 	mux := http.NewServeMux()
 	registerRoutes(mux, e)
 
-	srv := &http.Server{Addr: *listen, Handler: logMiddleware(mux)}
+	handler := authMiddleware(tok, *listen, mux)
+	srv := &http.Server{Addr: *listen, Handler: logMiddleware(handler)}
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -45,11 +52,34 @@ func Serve(e *engine.Engine, args []string) error {
 		_ = srv.Shutdown(ctx)
 	}()
 
+	uiURL := buildUIURL(*listen, tok)
 	log.Printf("Starting web UI on http://%s", *listen)
+	log.Printf("Access URL: %s", uiURL)
+
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 	return nil
+}
+
+// buildUIURL constructs the browser URL with the embedded token.
+// For 0.0.0.0/:: binds, substitutes "localhost" so the URL is usable.
+func buildUIURL(listenAddr, token string) string {
+	host, port, err := net.SplitHostPort(listenAddr)
+	if err != nil {
+		host = listenAddr
+		port = ""
+	}
+	if host == "0.0.0.0" || host == "::" || host == "" {
+		host = "localhost"
+	}
+	var addr string
+	if port != "" {
+		addr = net.JoinHostPort(host, port)
+	} else {
+		addr = host
+	}
+	return fmt.Sprintf("http://%s/?token=%s", addr, token)
 }
 
 type statusWriter struct {
@@ -75,7 +105,9 @@ func logMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: 200}
 		next.ServeHTTP(sw, r)
-		log.Printf("%s %s %d %s", r.Method, r.URL.Path, sw.status, time.Since(start).Round(time.Millisecond))
+		// Sanitise path to prevent CRLF injection in logs.
+		safePath := strings.NewReplacer("\n", "\\n", "\r", "\\r").Replace(r.URL.Path)
+		log.Printf("%s %s %d %s", r.Method, safePath, sw.status, time.Since(start).Round(time.Millisecond))
 	})
 }
 
@@ -91,6 +123,7 @@ func registerRoutes(mux *http.ServeMux, e *engine.Engine) {
 	mux.HandleFunc("POST /api/vms/{id}/restart", handleRestartVM(e))
 	mux.HandleFunc("PUT /api/vms/{id}/boot", handleSetBoot(e))
 	mux.HandleFunc("PUT /api/vms/{id}/password", handleSetVMPassword(e))
+	mux.HandleFunc("GET /api/vms/{id}/password", handleGetVMPassword(e))
 	mux.HandleFunc("DELETE /api/vms/{id}", handleDeleteVM(e))
 	mux.HandleFunc("GET /api/vms/{id}/console", handleConsole(e))
 

@@ -8,6 +8,25 @@ import (
 	"strings"
 )
 
+// yamlDoubleQuote wraps s in YAML double-quotes, escaping only the characters
+// that need it inside a YAML double-quoted scalar.
+func yamlDoubleQuote(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, c := range s {
+		switch c {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		default:
+			b.WriteRune(c)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
 // buildUserData generates the default cloud-init user-data.
 // password is the plaintext password; empty string means no password auth.
 // The password is applied to both root and the distro default user.
@@ -15,14 +34,15 @@ func buildUserData(sshKey, password string) string {
 	var b strings.Builder
 	b.WriteString("#cloud-config\n")
 	if password != "" {
-		// `password` sets the default user's password; chpasswd list also sets root.
-		b.WriteString("password: " + password + "\n")
+		// Double-quote the password value to prevent YAML injection.
+		quoted := yamlDoubleQuote(password)
+		b.WriteString("password: " + quoted + "\n")
 		b.WriteString("chpasswd:\n  expire: false\n  list: |\n    root:" + password + "\nssh_pwauth: true\n")
 	} else {
 		b.WriteString("chpasswd:\n  expire: false\nssh_pwauth: false\n")
 	}
 	if sshKey != "" {
-		b.WriteString("ssh_authorized_keys:\n  - " + strings.TrimSpace(sshKey) + "\n")
+		b.WriteString("ssh_authorized_keys:\n  - " + yamlDoubleQuote(strings.TrimSpace(sshKey)) + "\n")
 	}
 	return b.String()
 }
@@ -32,6 +52,17 @@ func buildUserData(sshKey, password string) string {
 // If userData is non-empty it overrides everything else.
 // Requires genisoimage or mkisofs on the host.
 func (e *Engine) GenerateCloudInit(isoPath, hostname, sshKey, password, userData string) error {
+	// Validate inputs to prevent YAML injection.
+	if strings.ContainsAny(password, "\n\r\x00") {
+		return fmt.Errorf("password must not contain newlines or null bytes")
+	}
+	if strings.ContainsAny(sshKey, "\n\r\x00") {
+		return fmt.Errorf("SSH key must not contain newlines or null bytes")
+	}
+	if strings.Contains(userData, "\x00") {
+		return fmt.Errorf("user-data must not contain null bytes")
+	}
+
 	tmpDir, err := os.MkdirTemp("", "v-cloudinit-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
