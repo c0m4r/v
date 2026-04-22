@@ -37,8 +37,18 @@ func (e *Engine) VMState(id string) (State, error) {
 	return StateRunning, nil
 }
 
-// StartVM launches QEMU for the given VM.
+// StartVM launches QEMU for the given VM in headless mode.
 func (e *Engine) StartVM(idOrName string) error {
+	return e.startVM(idOrName, false)
+}
+
+// StartVMGraphical launches QEMU for the given VM with a graphical display window.
+// The command returns immediately while the window stays open.
+func (e *Engine) StartVMGraphical(idOrName string) error {
+	return e.startVM(idOrName, true)
+}
+
+func (e *Engine) startVM(idOrName string, graphical bool) error {
 	vm, err := e.GetVM(idOrName)
 	if err != nil {
 		return err
@@ -91,10 +101,15 @@ func (e *Engine) StartVM(idOrName string) error {
 	args = append(args,
 		"-qmp", fmt.Sprintf("unix:%s,server=on,wait=off", qmpPath),
 		"-serial", fmt.Sprintf("unix:%s,server=on,wait=off", consolePath),
-		"-display", "none",
-		"-daemonize",
-		"-pidfile", pidPath,
 	)
+
+	if graphical {
+		// No -display flag: let QEMU auto-select SDL/GTK based on the environment.
+		// -daemonize is kept so the command returns immediately while the window lives.
+		args = append(args, "-daemonize", "-pidfile", pidPath)
+	} else {
+		args = append(args, "-display", "none", "-daemonize", "-pidfile", pidPath)
+	}
 
 	// Networking
 	switch vm.NetMode {

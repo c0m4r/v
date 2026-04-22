@@ -23,7 +23,7 @@ Commands:
   create      Create a new VM
   list        List all VMs
   info        Show VM details
-  start       Start a VM
+  start       Start a VM (--graphical / -g for a display window)
   stop        Gracefully stop a VM (ACPI shutdown)
   force-stop  Force stop a VM
   restart     Restart a VM
