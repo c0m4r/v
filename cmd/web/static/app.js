@@ -28,6 +28,9 @@ async function api(method, path, body) {
 
 // --- VM List ---
 
+// Passwords are kept out of the DOM to avoid single-quote breakout in onclick attrs.
+const vmPasswords = {};
+
 async function loadVMs() {
   try {
     const vms = await api("GET", "/vms");
@@ -41,18 +44,21 @@ async function loadVMs() {
       return;
     }
 
+    // Refresh password cache
+    for (const vm of vms) vmPasswords[vm.id] = vm.root_password || "";
+
     table.hidden = false;
     noVMs.hidden = true;
     tbody.innerHTML = vms.map(vm => `
       <tr>
         <td><strong>${esc(vm.name)}</strong></td>
         <td><code>${esc(vm.id)}</code></td>
-        <td>${vm.cpus}</td>
-        <td>${vm.memory_mb} MB</td>
+        <td>${esc(vm.cpus)}</td>
+        <td>${esc(vm.memory_mb)} MB</td>
         <td>${esc(vm.disk_size)}</td>
         <td>${esc(vm.net_mode)}</td>
-        <td>${vm.ip ? esc(vm.ip) : (vm.ssh_port ? 'localhost:' + vm.ssh_port : '-')}</td>
-        <td class="state-${vm.state}">${vm.state}</td>
+        <td>${vm.ip ? esc(vm.ip) : (vm.ssh_port ? esc('localhost:' + vm.ssh_port) : '-')}</td>
+        <td class="state-${esc(vm.state)}">${esc(vm.state)}</td>
         <td class="actions">${vmActions(vm)}</td>
       </tr>
     `).join("");
@@ -73,7 +79,7 @@ function vmActions(vm) {
     btns.push(actionBtn(vm.id, "restart", "Restart", ""));
     btns.push(`<button class="btn btn-small" onclick="openConsole('${vm.id}','${esc(vm.name)}')">Console</button>`);
   }
-  btns.push(`<button class="btn btn-small" onclick="openPasswordDialog('${vm.id}','${esc(vm.name)}','${esc(vm.root_password||'')}')">Password</button>`);
+  btns.push(`<button class="btn btn-small" onclick="openPasswordDialog('${vm.id}','${esc(vm.name)}')">Password</button>`);
   return btns.join("");
 }
 
@@ -477,11 +483,11 @@ function closeConsole() {
 
 let pwDialogVMId = null;
 
-function openPasswordDialog(id, name, password) {
+function openPasswordDialog(id, name) {
   pwDialogVMId = id;
   document.getElementById("pw-dialog-title").textContent = `Root Password — ${name}`;
   const display = document.getElementById("pw-display");
-  display.value = password || "";
+  display.value = vmPasswords[id] || "";
   display.type = "password";
   document.getElementById("pw-toggle-btn").textContent = "Show";
   document.getElementById("password-dialog").showModal();
