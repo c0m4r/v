@@ -191,15 +191,46 @@ function generatePassword() {
   return Array.from(arr, b => PASSWORD_CHARS[b % PASSWORD_CHARS.length]).join("");
 }
 
+function setCreatePasswordAuto() {
+  const input = document.getElementById("create-pw-input");
+  const toggle = document.getElementById("create-pw-toggle");
+  input.type = "text";
+  input.value = generatePassword();
+  toggle.hidden = true;
+  toggle.textContent = "Show";
+}
+
+function toggleCreatePassword() {
+  const input = document.getElementById("create-pw-input");
+  const toggle = document.getElementById("create-pw-toggle");
+  if (input.type === "password") {
+    input.type = "text";
+    toggle.textContent = "Hide";
+  } else {
+    input.type = "password";
+    toggle.textContent = "Show";
+  }
+}
+
 function regenerateCreatePassword() {
   const pwInput = document.getElementById("create-pw-input");
-  if (!pwInput.disabled) pwInput.value = generatePassword();
+  if (!pwInput.disabled) setCreatePasswordAuto();
 }
+
+document.getElementById("create-pw-input").addEventListener("input", () => {
+  const input = document.getElementById("create-pw-input");
+  const toggle = document.getElementById("create-pw-toggle");
+  if (input.type === "text") {
+    input.type = "password";
+    toggle.hidden = false;
+    toggle.textContent = "Show";
+  }
+});
 
 document.getElementById("no-password-check").addEventListener("change", (e) => {
   const pwInput = document.getElementById("create-pw-input");
   pwInput.disabled = e.target.checked;
-  if (!e.target.checked) pwInput.value = generatePassword();
+  if (!e.target.checked) setCreatePasswordAuto();
 });
 
 document.getElementById("btn-create").addEventListener("click", async () => {
