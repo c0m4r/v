@@ -29,7 +29,7 @@ GCFLAGS=""
 echo "Building ${BINARY} ${VERSION} on ${DATE}"
 echo
 
-CGO_ENABLED=0 \
+CGO_ENABLED=1 \
     go build \
         -trimpath \
         -ldflags "${LDFLAGS}" \
@@ -46,7 +46,7 @@ for target in "${TARGETS[@]}"; do
 
     printf "  %-20s → %s\n" "${GOOS}/${GOARCH}" "${out}"
 
-    CGO_ENABLED=0 GOOS="${GOOS}" GOARCH="${GOARCH}" \
+    CGO_ENABLED=1 GOOS="${GOOS}" GOARCH="${GOARCH}" \
         go build \
             -trimpath \
             -ldflags "${LDFLAGS}" \

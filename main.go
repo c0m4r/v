@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/c0m4r/v/cmd/cli"
+	"github.com/c0m4r/v/cmd/gui"
 	"github.com/c0m4r/v/cmd/web"
 	"github.com/c0m4r/v/engine"
 )
@@ -42,6 +43,7 @@ Commands:
   config set     Set a config value (e.g. v config set ssh-key ~/.ssh/id_ed25519.pub)
 
   serve       Start the web UI server
+  gui         Start the GTK desktop GUI
 
   net setup      Set up bridge networking (requires root)
   net teardown   Tear down bridge networking (requires root)
@@ -66,6 +68,11 @@ func main() {
 	switch cmd {
 	case "serve":
 		if err := web.Serve(e, args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	case "gui":
+		if err := gui.Run(e, args); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}

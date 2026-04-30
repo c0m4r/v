@@ -500,6 +500,11 @@ func generatePassword() string {
 	return string(out)
 }
 
+// GeneratePassword returns a random 16-character password suitable for VM root credentials.
+func GeneratePassword() string {
+	return generatePassword()
+}
+
 const sshPortBase = 2222
 
 // nextSSHPort finds the next available host port for SSH forwarding.
