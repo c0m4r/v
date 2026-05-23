@@ -211,11 +211,14 @@ func (e *Engine) CreateVM(opts CreateVMOpts) (*VM, error) {
 		}
 	}
 
-	// Verify base image exists and is confined to the image directory.
-	baseImage := filepath.Join(e.ImageDir, opts.Image)
-	if !strings.HasPrefix(filepath.Clean(baseImage)+string(os.PathSeparator), filepath.Clean(e.ImageDir)+string(os.PathSeparator)) {
-		return nil, fmt.Errorf("image %q escapes the image directory", opts.Image)
+	// validate() has already rejected separators and "..", but route the
+	// image name through filepath.Base so static analysis can prove the
+	// resulting path cannot escape ImageDir.
+	imageName := filepath.Base(opts.Image)
+	if imageName != opts.Image {
+		return nil, fmt.Errorf("image %q must be a bare filename", opts.Image)
 	}
+	baseImage := filepath.Join(e.ImageDir, imageName)
 	if _, err := os.Stat(baseImage); err != nil {
 		return nil, fmt.Errorf("base image %q not found (run 'v image pull' first)", opts.Image)
 	}

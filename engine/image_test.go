@@ -32,7 +32,10 @@ func TestResolveImage_KnownName(t *testing.T) {
 	known := map[string]string{
 		"ubuntu-24.04": "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img",
 	}
-	url, fileName := resolveImage("ubuntu-24.04", known)
+	url, fileName, err := resolveImage("ubuntu-24.04", known)
+	if err != nil {
+		t.Fatalf("resolveImage: %v", err)
+	}
 	if url != known["ubuntu-24.04"] {
 		t.Errorf("url: got %q, want %q", url, known["ubuntu-24.04"])
 	}
@@ -43,7 +46,10 @@ func TestResolveImage_KnownName(t *testing.T) {
 
 func TestResolveImage_URL(t *testing.T) {
 	rawURL := "https://example.com/path/to/custom.qcow2"
-	url, fileName := resolveImage(rawURL, nil)
+	url, fileName, err := resolveImage(rawURL, nil)
+	if err != nil {
+		t.Fatalf("resolveImage: %v", err)
+	}
 	if url != rawURL {
 		t.Errorf("url: got %q, want %q", url, rawURL)
 	}
@@ -54,7 +60,10 @@ func TestResolveImage_URL(t *testing.T) {
 
 func TestResolveImage_HTTPUrl(t *testing.T) {
 	rawURL := "http://example.com/image.img"
-	url, fileName := resolveImage(rawURL, nil)
+	url, fileName, err := resolveImage(rawURL, nil)
+	if err != nil {
+		t.Fatalf("resolveImage: %v", err)
+	}
 	if url != rawURL {
 		t.Errorf("url: got %q, want %q", url, rawURL)
 	}
@@ -64,12 +73,14 @@ func TestResolveImage_HTTPUrl(t *testing.T) {
 }
 
 func TestResolveImage_Unknown(t *testing.T) {
-	url, fileName := resolveImage("some-unknown", map[string]string{})
-	if url != "some-unknown" {
-		t.Errorf("url: got %q, want some-unknown", url)
+	if _, _, err := resolveImage("some-unknown", map[string]string{}); err == nil {
+		t.Error("expected error for unknown name with no scheme, got nil")
 	}
-	if fileName != "some-unknown" {
-		t.Errorf("fileName: got %q, want some-unknown", fileName)
+}
+
+func TestResolveImage_BadScheme(t *testing.T) {
+	if _, _, err := resolveImage("file:///etc/passwd", nil); err == nil {
+		t.Error("expected error for file:// scheme, got nil")
 	}
 }
 

@@ -6,7 +6,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -88,7 +90,15 @@ func safePullClient() *http.Client {
 // PullImage downloads a cloud image by name or URL into the image cache.
 // progress receives bytes written so far; pass nil to ignore.
 func (e *Engine) PullImage(nameOrURL string, progress func(int64)) (string, error) {
-	url, fileName := resolveImage(nameOrURL, e.KnownImages())
+	rawURL, rawFile, err := resolveImage(nameOrURL, e.KnownImages())
+	if err != nil {
+		return "", err
+	}
+	// Constrain fileName to a single safe basename inside ImageDir.
+	fileName := filepath.Base(rawFile)
+	if fileName == "" || fileName == "." || fileName == ".." || strings.ContainsAny(fileName, `/\`) {
+		return "", fmt.Errorf("invalid image filename derived from %q", nameOrURL)
+	}
 	destPath := filepath.Join(e.ImageDir, fileName)
 
 	if _, err := os.Stat(destPath); err == nil {
@@ -96,7 +106,7 @@ func (e *Engine) PullImage(nameOrURL string, progress func(int64)) (string, erro
 	}
 
 	client := safePullClient()
-	resp, err := client.Get(url)
+	resp, err := client.Get(rawURL)
 	if err != nil {
 		return "", fmt.Errorf("download image: %w", err)
 	}
@@ -184,17 +194,21 @@ func IsISO(name string) bool {
 	return strings.EqualFold(filepath.Ext(name), ".iso")
 }
 
-func resolveImage(nameOrURL string, knownImages map[string]string) (url, fileName string) {
-	if strings.HasPrefix(nameOrURL, "http://") || strings.HasPrefix(nameOrURL, "https://") {
-		parts := strings.Split(nameOrURL, "/")
-		return nameOrURL, parts[len(parts)-1]
-	}
-
+func resolveImage(nameOrURL string, knownImages map[string]string) (rawURL, fileName string, err error) {
+	candidate := nameOrURL
 	if u, ok := knownImages[nameOrURL]; ok {
-		parts := strings.Split(u, "/")
-		return u, parts[len(parts)-1]
+		candidate = u
 	}
 
-	// Treat as a URL anyway
-	return nameOrURL, nameOrURL
+	parsed, perr := url.Parse(candidate)
+	if perr != nil {
+		return "", "", fmt.Errorf("invalid image URL %q: %w", candidate, perr)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", "", fmt.Errorf("image URL must use http or https, got %q", candidate)
+	}
+	if parsed.Host == "" {
+		return "", "", fmt.Errorf("image URL %q has no host", candidate)
+	}
+	return parsed.String(), path.Base(parsed.Path), nil
 }
