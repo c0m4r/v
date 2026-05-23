@@ -211,11 +211,10 @@ func (e *Engine) CreateVM(opts CreateVMOpts) (*VM, error) {
 		}
 	}
 
-	// validate() has already rejected separators and "..", but route the
-	// image name through filepath.Base so static analysis can prove the
-	// resulting path cannot escape ImageDir.
+	// Re-validate with the strict filename regex so static analysis can prove
+	// the joined path stays inside ImageDir.
 	imageName := filepath.Base(opts.Image)
-	if imageName != opts.Image {
+	if !validImageFilename.MatchString(imageName) {
 		return nil, fmt.Errorf("image %q must be a bare filename", opts.Image)
 	}
 	baseImage := filepath.Join(e.ImageDir, imageName)

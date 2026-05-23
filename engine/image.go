@@ -10,9 +10,18 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
+
+// validImageFilename restricts cached image filenames to a safe character class
+// so static analyzers can prove the join with ImageDir cannot escape.
+var validImageFilename = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`)
+
+// validImageURL restricts download URLs to a strict http(s) shape so static
+// analyzers can prove no scheme or host smuggling.
+var validImageURL = regexp.MustCompile(`^https?://[a-zA-Z0-9][a-zA-Z0-9.-]{0,253}(:[0-9]{1,5})?(/[a-zA-Z0-9._~/-]*)?$`)
 
 // ImageInfo holds metadata about a cached image.
 type ImageInfo struct {
@@ -94,10 +103,12 @@ func (e *Engine) PullImage(nameOrURL string, progress func(int64)) (string, erro
 	if err != nil {
 		return "", err
 	}
-	// Constrain fileName to a single safe basename inside ImageDir.
 	fileName := filepath.Base(rawFile)
-	if fileName == "" || fileName == "." || fileName == ".." || strings.ContainsAny(fileName, `/\`) {
+	if !validImageFilename.MatchString(fileName) {
 		return "", fmt.Errorf("invalid image filename derived from %q", nameOrURL)
+	}
+	if !validImageURL.MatchString(rawURL) {
+		return "", fmt.Errorf("invalid image URL %q", rawURL)
 	}
 	destPath := filepath.Join(e.ImageDir, fileName)
 

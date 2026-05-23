@@ -3,6 +3,8 @@ package cli
 import (
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/c0m4r/v/engine"
 )
@@ -71,7 +73,11 @@ func cmdCreate(e *engine.Engine, args []string) error {
 		fmt.Printf("  Boot: ISO (will boot from %s)\n", vm.BaseImage)
 	}
 	if vm.RootPassword != "" {
-		fmt.Printf("  Root password: %s\n", vm.RootPassword)
+		pwFile := filepath.Join(e.VMPath(vm.ID), "root-password")
+		if err := os.WriteFile(pwFile, []byte(vm.RootPassword+"\n"), 0600); err != nil {
+			return fmt.Errorf("save root password: %w", err)
+		}
+		fmt.Printf("  Root password: written to %s (mode 0600)\n", pwFile)
 	} else {
 		fmt.Printf("  Root password: (none — use SSH key)\n")
 	}
