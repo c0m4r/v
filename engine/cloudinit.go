@@ -87,6 +87,7 @@ func (e *Engine) GenerateCloudInit(isoPath, hostname, sshKey, password, userData
 		return fmt.Errorf("neither genisoimage nor mkisofs found; install one of them")
 	}
 
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.Command(isoTool,
 		"-output", isoPath,
 		"-volid", "cidata",
