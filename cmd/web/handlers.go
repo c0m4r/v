@@ -259,13 +259,37 @@ func handlePullImage(e *engine.Engine) http.HandlerFunc {
 			return
 		}
 
-		path, err := e.PullImage(req.Name, nil)
-		if err != nil {
-			jsonError(w, 500, err.Error())
+		// Stream progress as newline-delimited JSON so the UI can render a
+		// live percentage. Falls back to a single JSON object if the response
+		// writer can't flush (no http.Flusher support).
+		flusher, canStream := w.(http.Flusher)
+		if !canStream {
+			path, err := e.PullImage(req.Name, nil)
+			if err != nil {
+				jsonError(w, 500, err.Error())
+				return
+			}
+			jsonResponse(w, 200, map[string]any{"path": path, "done": true})
 			return
 		}
 
-		jsonResponse(w, 200, map[string]string{"path": path})
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("X-Accel-Buffering", "no")
+		w.WriteHeader(http.StatusOK)
+
+		enc := json.NewEncoder(w)
+		path, err := e.PullImage(req.Name, func(bytes, total int64) {
+			_ = enc.Encode(map[string]any{"bytes": bytes, "total": total})
+			flusher.Flush()
+		})
+		if err != nil {
+			_ = enc.Encode(map[string]string{"error": err.Error()})
+			flusher.Flush()
+			return
+		}
+		_ = enc.Encode(map[string]any{"path": path, "done": true})
+		flusher.Flush()
 	}
 }
 

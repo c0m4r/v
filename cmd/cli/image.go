@@ -37,8 +37,16 @@ func cmdImagePull(e *engine.Engine, args []string) error {
 	name := args[0]
 	fmt.Printf("Pulling image %q...\n", name)
 
-	path, err := e.PullImage(name, func(bytes int64) {
-		fmt.Fprintf(os.Stderr, "\rDownloaded: %.1f MB", float64(bytes)/1024/1024)
+	path, err := e.PullImage(name, func(bytes, total int64) {
+		const mib = 1024.0 * 1024.0
+		got := float64(bytes) / mib
+		if total > 0 {
+			tot := float64(total) / mib
+			pct := float64(bytes) * 100 / float64(total)
+			fmt.Fprintf(os.Stderr, "\rDownloaded: %7.1f / %7.1f MB (%5.1f%%)", got, tot, pct)
+		} else {
+			fmt.Fprintf(os.Stderr, "\rDownloaded: %7.1f MB", got)
+		}
 	})
 	if err != nil {
 		return err

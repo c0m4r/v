@@ -100,6 +100,14 @@ func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, fmt.Errorf("underlying ResponseWriter does not support Hijack")
 }
 
+// Flush delegates to the underlying ResponseWriter so handlers can stream
+// chunked responses (e.g. image pull progress) through the middleware chain.
+func (w *statusWriter) Flush() {
+	if fl, ok := w.ResponseWriter.(http.Flusher); ok {
+		fl.Flush()
+	}
+}
+
 func logMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

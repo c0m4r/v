@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/ulikunitz/xz"
 )
 
 // validImageFilename restricts cached image filenames to a safe character class
@@ -96,21 +98,43 @@ func safePullClient() *http.Client {
 	}
 }
 
+// countingReader wraps an io.Reader and tracks how many bytes have been read.
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
+// progressInterval is the minimum delay between progress callback invocations
+// during a download, to keep clients (CLI rendering, web SSE-style streams)
+// from being overwhelmed.
+const progressInterval = 200 * time.Millisecond
+
 // PullImage downloads a cloud image by name or URL into the image cache.
-// progress receives bytes written so far; pass nil to ignore.
-func (e *Engine) PullImage(nameOrURL string, progress func(int64)) (string, error) {
+// progress, if non-nil, is invoked periodically with (bytesSoFar, totalBytes).
+// For .xz URLs, both values measure HTTP-level (compressed) bytes against
+// Content-Length, so percentage math stays meaningful even though the file on
+// disk is the decompressed payload. totalBytes is 0 when unknown.
+func (e *Engine) PullImage(nameOrURL string, progress func(bytes, total int64)) (string, error) {
 	rawURL, rawFile, err := resolveImage(nameOrURL, e.KnownImages())
 	if err != nil {
 		return "", err
 	}
 	fileName := filepath.Base(rawFile)
-	if !validImageFilename.MatchString(fileName) {
+	compressed := strings.HasSuffix(strings.ToLower(fileName), ".xz")
+	storedName := strings.TrimSuffix(fileName, ".xz")
+	if !validImageFilename.MatchString(storedName) {
 		return "", fmt.Errorf("invalid image filename derived from %q", nameOrURL)
 	}
 	if !validImageURL.MatchString(rawURL) {
 		return "", fmt.Errorf("invalid image URL %q", rawURL)
 	}
-	destPath := filepath.Join(e.ImageDir, fileName)
+	destPath := filepath.Join(e.ImageDir, storedName)
 
 	if _, err := os.Stat(destPath); err == nil {
 		return destPath, nil // already cached
@@ -137,10 +161,25 @@ func (e *Engine) PullImage(nameOrURL string, progress func(int64)) (string, erro
 		_ = os.Remove(tmpName) // clean up on failure
 	}()
 
+	total := resp.ContentLength
+	if total < 0 {
+		total = 0
+	}
+	counter := &countingReader{r: resp.Body}
+	var src io.Reader = counter
+	if compressed {
+		xzr, xerr := xz.NewReader(counter)
+		if xerr != nil {
+			return "", fmt.Errorf("decompress xz: %w", xerr)
+		}
+		src = xzr
+	}
+
+	lastTick := time.Now()
 	var written int64
 	buf := make([]byte, 256*1024)
 	for {
-		n, readErr := resp.Body.Read(buf)
+		n, readErr := src.Read(buf)
 		if n > 0 {
 			if _, err := tmp.Write(buf[:n]); err != nil {
 				return "", fmt.Errorf("write image: %w", err)
@@ -149,11 +188,15 @@ func (e *Engine) PullImage(nameOrURL string, progress func(int64)) (string, erro
 			if written > maxImageBytes {
 				return "", fmt.Errorf("image exceeds maximum allowed size (%d GiB)", maxImageBytes>>30)
 			}
-			if progress != nil {
-				progress(written)
+			if progress != nil && time.Since(lastTick) >= progressInterval {
+				progress(counter.n, total)
+				lastTick = time.Now()
 			}
 		}
 		if readErr == io.EOF {
+			if progress != nil {
+				progress(counter.n, total)
+			}
 			break
 		}
 		if readErr != nil {

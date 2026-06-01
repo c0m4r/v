@@ -33,6 +33,10 @@ func yamlDoubleQuote(s string) string {
 func buildUserData(sshKey, password string) string {
 	var b strings.Builder
 	b.WriteString("#cloud-config\n")
+	// Allow direct root SSH login. Without this, Ubuntu/Debian cloud images
+	// default to disable_root: true, which prepends a forced command to
+	// root's authorized_keys ("Please login as ubuntu/debian rather than root").
+	b.WriteString("disable_root: false\n")
 	if password != "" {
 		// Double-quote the password value to prevent YAML injection.
 		quoted := yamlDoubleQuote(password)

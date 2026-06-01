@@ -2,8 +2,8 @@ package cli
 
 import (
 	"fmt"
-	"text/tabwriter"
 	"os"
+	"text/tabwriter"
 
 	"github.com/c0m4r/v/engine"
 )

@@ -15,12 +15,14 @@ type Config struct {
 
 // defaultImages are built-in cloud image shortcuts shipped with v.
 var defaultImages = map[string]string{
-	"ubuntu-24.04":  "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img",
-	"ubuntu-22.04":  "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img",
-	"debian-13":     "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2",
-	"debian-12":     "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2",
-	"alpine-v3.23":  "https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/x86_64/alpine-virt-3.23.3-x86_64.iso",
-	"rocky-10":      "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base.latest.x86_64.qcow2",
+	"ubuntu-24.04": "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img",
+	"ubuntu-22.04": "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img",
+	"debian-13":    "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2",
+	"debian-12":    "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2",
+	"alpine-v3.23": "https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/x86_64/alpine-virt-3.23.3-x86_64.iso",
+	"rocky-10":     "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base.latest.x86_64.qcow2",
+	"freebsd-15.0": "https://download.freebsd.org/releases/VM-IMAGES/15.0-RELEASE/amd64/Latest/FreeBSD-15.0-RELEASE-amd64-BASIC-CLOUDINIT-zfs.qcow2.xz",
+	"openbsd-7.9":  "https://cdn.openbsd.org/pub/OpenBSD/7.9/amd64/install79.img",
 }
 
 func (e *Engine) configPath() string {

@@ -7,4 +7,7 @@ require (
 	golang.org/x/term v0.43.0
 )
 
-require golang.org/x/sys v0.45.0 // indirect
+require (
+	github.com/ulikunitz/xz v0.5.15 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+)

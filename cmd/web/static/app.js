@@ -54,6 +54,52 @@ async function api(method, path, body) {
   return data;
 }
 
+// pullImageStreaming POSTs to /images/pull and reads the newline-delimited
+// JSON progress stream emitted by the server. onProgress receives raw byte
+// counts; the final event is either {path, done:true} or {error}.
+async function pullImageStreaming(name, onProgress) {
+  const resp = await fetch(API + "/images/pull", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${authToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name }),
+  });
+  if (resp.status === 401) {
+    showAuthError();
+    throw new Error("unauthorized");
+  }
+  if (!resp.ok) {
+    let msg = resp.statusText;
+    try { msg = (await resp.json()).error || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let final = null;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (value) buf += decoder.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line) continue;
+      let evt;
+      try { evt = JSON.parse(line); } catch (_) { continue; }
+      if (evt.error) throw new Error(evt.error);
+      if (evt.done) { final = evt; continue; }
+      if (typeof evt.bytes === "number") onProgress(evt.bytes, evt.total || 0);
+    }
+    if (done) break;
+  }
+  if (!final) throw new Error("pull ended without completion event");
+  return final;
+}
+
 function showAuthError() {
   document.body.innerHTML = `
     <div style="padding:3rem;text-align:center;font-family:monospace">
@@ -317,7 +363,17 @@ document.getElementById("create-form").addEventListener("submit", async (e) => {
 
     if (!isCached && imgData.available && imgData.available[imageName]) {
       btn.textContent = "Downloading image...";
-      const result = await api("POST", "/images/pull", { name: imageName });
+      const result = await pullImageStreaming(imageName, (bytes, total) => {
+        const mib = 1024 * 1024;
+        const got = (bytes / mib).toFixed(1);
+        if (total > 0) {
+          const tot = (total / mib).toFixed(1);
+          const pct = (bytes * 100 / total).toFixed(1);
+          btn.textContent = `Downloading ${got} / ${tot} MB (${pct}%)`;
+        } else {
+          btn.textContent = `Downloading ${got} MB...`;
+        }
+      });
       btn.textContent = "Create";
       image = result.path.split("/").pop();
     }
@@ -474,6 +530,19 @@ function scheduleReconnect() {
 function openConsole(id, name) {
   const overlay = document.getElementById("console-overlay");
 
+  // If a session for this VM is already alive (e.g. minimized), just reveal
+  // it — the xterm buffer and WebSocket are preserved.
+  if (consoleVMId === id && consoleTerm) {
+    overlay.hidden = false;
+    requestAnimationFrame(() => {
+      if (consoleFitAddon) {
+        try { consoleFitAddon.fit(); } catch (_) {}
+      }
+      consoleTerm.focus();
+    });
+    return;
+  }
+
   // Clean up previous session
   consoleManualClose = false;
   if (consoleReconnectTimer) { clearInterval(consoleReconnectTimer); consoleReconnectTimer = null; }
@@ -503,13 +572,25 @@ function openConsole(id, name) {
     }
   });
 
-  // Auto-fit on any resize (drag handle or fullscreen toggle)
+  // Auto-fit on any resize (drag handle or fullscreen toggle). Skip while
+  // minimized — the container is display:none, so dimensions are 0 and fit()
+  // would throw.
   consoleResizeObserver = new ResizeObserver(() => {
-    if (consoleFitAddon) consoleFitAddon.fit();
+    if (consoleFitAddon && !overlay.hidden) {
+      try { consoleFitAddon.fit(); } catch (_) {}
+    }
   });
   consoleResizeObserver.observe(document.getElementById("terminal"));
 
   requestAnimationFrame(() => { consoleFitAddon.fit(); connectConsole(); });
+}
+
+function minimizeConsole() {
+  // Hide the overlay but keep the terminal buffer and WebSocket alive so
+  // output keeps streaming into the (offscreen) xterm scrollback. Clicking
+  // the Console button for this VM again will restore it.
+  const overlay = document.getElementById("console-overlay");
+  overlay.hidden = true;
 }
 
 function toggleFullscreen() {

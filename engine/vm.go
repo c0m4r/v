@@ -19,17 +19,17 @@ var validDiskSize = regexp.MustCompile(`^[0-9]+[KMGTkmgt]$`)
 
 // VM represents a virtual machine's persistent configuration.
 type VM struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	CPUs      int       `json:"cpus"`
-	MemoryMB  int       `json:"memory_mb"`
-	DiskSize  string    `json:"disk_size"`
-	BaseImage string    `json:"base_image"`
-	BootDev   string    `json:"boot_dev"` // "disk" or "cdrom"
-	NetMode   string    `json:"net_mode"`
-	GPU       string    `json:"gpu,omitempty"`      // "none", "virtio", "passthrough"
-	PCIAddr   string    `json:"pci_addr,omitempty"` // PCI address for passthrough (e.g. "01:00.0")
-	Audio     string    `json:"audio,omitempty"`    // "none", "pa", "pipewire", "alsa"
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	CPUs         int       `json:"cpus"`
+	MemoryMB     int       `json:"memory_mb"`
+	DiskSize     string    `json:"disk_size"`
+	BaseImage    string    `json:"base_image"`
+	BootDev      string    `json:"boot_dev"` // "disk" or "cdrom"
+	NetMode      string    `json:"net_mode"`
+	GPU          string    `json:"gpu,omitempty"`      // "none", "virtio", "passthrough"
+	PCIAddr      string    `json:"pci_addr,omitempty"` // PCI address for passthrough (e.g. "01:00.0")
+	Audio        string    `json:"audio,omitempty"`    // "none", "pa", "pipewire", "alsa"
 	MACAddr      string    `json:"mac_address"`
 	SSHPort      int       `json:"ssh_port,omitempty"`      // host port forwarded to VM:22 (user-mode only)
 	RootPassword string    `json:"root_password,omitempty"` // stored plaintext password (local use only)
