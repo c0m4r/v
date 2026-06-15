@@ -138,8 +138,12 @@ func (o *CreateVMOpts) validate() error {
 	if strings.ContainsAny(o.RootPassword, "\n\r\x00") {
 		return fmt.Errorf("password must not contain newlines or null bytes")
 	}
+	// A public SSH key is a single line; strip surrounding whitespace so a
+	// pasted key with a trailing newline is accepted. Any remaining newline
+	// means more than one key/line was supplied, which we reject.
+	o.SSHKey = strings.TrimSpace(o.SSHKey)
 	if strings.ContainsAny(o.SSHKey, "\n\r\x00") {
-		return fmt.Errorf("SSH key must not contain newlines or null bytes")
+		return fmt.Errorf("SSH key must be a single line (no newlines or null bytes)")
 	}
 	if o.NetMode == "" {
 		o.NetMode = "user"

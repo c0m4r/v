@@ -60,8 +60,10 @@ func (e *Engine) GenerateCloudInit(isoPath, hostname, sshKey, password, userData
 	if strings.ContainsAny(password, "\n\r\x00") {
 		return fmt.Errorf("password must not contain newlines or null bytes")
 	}
+	// A public SSH key is a single line; tolerate surrounding whitespace.
+	sshKey = strings.TrimSpace(sshKey)
 	if strings.ContainsAny(sshKey, "\n\r\x00") {
-		return fmt.Errorf("SSH key must not contain newlines or null bytes")
+		return fmt.Errorf("SSH key must be a single line (no newlines or null bytes)")
 	}
 	if strings.Contains(userData, "\x00") {
 		return fmt.Errorf("user-data must not contain null bytes")
