@@ -1,6 +1,6 @@
 module github.com/c0m4r/v
 
-go 1.26.3
+go 1.26.4
 
 require (
 	github.com/ulikunitz/xz v0.5.15
