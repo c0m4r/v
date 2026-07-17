@@ -183,8 +183,9 @@ The web UI provides:
 - VM creation dialog with image selection (cached + available for download), auto-generated root password with regenerate button, and a "no password" option
 - Per-VM password reveal dialog (show/hide/copy the stored root password)
 - Live serial console via WebSocket (xterm.js) with fullscreen toggle
+- Console controls are disabled when the xterm.js assets were not included in the build
 - Bridge network option is automatically disabled if v is not running as root
-- Settings management (default SSH key)
+- Settings management (default SSH key) and a Shutdown button for gracefully stopping `v serve`
 
 On shutdown (Ctrl-C or SIGTERM), the web server cleans up all `v-tap-*` interfaces it created.
 

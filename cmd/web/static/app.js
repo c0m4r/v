@@ -11,6 +11,8 @@ let consoleManualClose = false;
 let consoleResizeObserver = null;
 let refreshTimer = null;
 let serverIsRoot = false;
+const consoleAvailable = typeof Terminal === "function" &&
+  typeof FitAddon !== "undefined" && typeof FitAddon.FitAddon === "function";
 
 // --- Auth token ---
 // Read from URL query param on first load; persist in sessionStorage for
@@ -157,7 +159,11 @@ function vmActions(vm) {
     btns.push(actionBtn(vm.id, "stop", "Stop", ""));
     btns.push(actionBtn(vm.id, "force-stop", "Force Stop", ""));
     btns.push(actionBtn(vm.id, "restart", "Restart", ""));
-    btns.push(`<button class="btn btn-small" onclick="openConsole('${vm.id}','${esc(vm.name)}')">Console</button>`);
+    if (consoleAvailable) {
+      btns.push(`<button class="btn btn-small" onclick="openConsole('${vm.id}','${esc(vm.name)}')">Console</button>`);
+    } else {
+      btns.push('<button class="btn btn-small" disabled title="xterm.js is not available in this build">Console unavailable</button>');
+    }
   }
   btns.push(`<button class="btn btn-small" onclick="openPasswordDialog('${vm.id}','${esc(vm.name)}')">Password</button>`);
   return btns.join("");
@@ -546,6 +552,8 @@ function scheduleReconnect() {
 }
 
 function openConsole(id, name) {
+  if (!consoleAvailable) return;
+
   const overlay = document.getElementById("console-overlay");
 
   // If a session for this VM is already alive (e.g. minimized), just reveal
