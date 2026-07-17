@@ -201,6 +201,24 @@ document.getElementById("btn-settings").addEventListener("click", async () => {
   document.getElementById("settings-dialog").showModal();
 });
 
+document.getElementById("btn-shutdown").addEventListener("click", async (e) => {
+  if (!confirm("Shut down v? The web UI will close.")) return;
+
+  const btn = e.currentTarget;
+  btn.classList.add("btn-loading");
+  btn.disabled = true;
+  btn.textContent = "Shutting down";
+
+  try {
+    await api("POST", "/shutdown");
+  } catch (err) {
+    if (err.message !== "unauthorized") alert("Error shutting down v: " + err.message);
+    btn.classList.remove("btn-loading");
+    btn.disabled = false;
+    btn.textContent = "Shutdown";
+  }
+});
+
 document.getElementById("settings-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = new FormData(e.target);

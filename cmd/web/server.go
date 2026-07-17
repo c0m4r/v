@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -48,15 +49,25 @@ func Serve(e *engine.Engine, args []string) error {
 
 	handler := authMiddleware(tok, *listen, mux)
 	srv := &http.Server{Addr: *listen, Handler: logMiddleware(handler)}
+	var shutdownOnce sync.Once
+	shutdown := func() {
+		shutdownOnce.Do(func() {
+			log.Printf("Shutting down web UI...")
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := srv.Shutdown(ctx); err != nil {
+				log.Printf("Graceful web UI shutdown failed: %v", err)
+			}
+		})
+	}
+	mux.HandleFunc("POST /api/shutdown", handleShutdown(shutdown))
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(quit)
 	go func() {
 		<-quit
-		log.Printf("Shutting down web UI...")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(ctx)
+		shutdown()
 	}()
 
 	uiURL := buildUIURL(*listen, tok)

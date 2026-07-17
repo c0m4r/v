@@ -19,6 +19,14 @@ func jsonError(w http.ResponseWriter, status int, msg string) {
 	jsonResponse(w, status, map[string]string{"error": msg})
 }
 
+// handleShutdown acknowledges the request before beginning graceful server shutdown.
+func handleShutdown(shutdown func()) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		jsonResponse(w, http.StatusAccepted, map[string]string{"status": "shutting_down"})
+		go shutdown()
+	}
+}
+
 // vmResponse is the public VM representation served by the API.
 // RootPassword is intentionally omitted — use GET /api/vms/{id}/password instead.
 type vmResponse struct {
