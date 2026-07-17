@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -149,6 +150,50 @@ func (e *Engine) CleanupTaps() {
 	}
 }
 
+// RecoverMissingTaps restarts running bridge VMs whose tap interface is
+// missing. A tap that was deleted while QEMU was running cannot be reattached
+// to QEMU's existing file descriptor, so restarting the affected VM is the
+// only reliable way to restore its bridge connection.
+func (e *Engine) RecoverMissingTaps() ([]string, error) {
+	return e.recoverMissingTaps(func(name string) bool {
+		_, err := net.InterfaceByName(name)
+		return err == nil
+	}, e.RestartVM)
+}
+
+func (e *Engine) recoverMissingTaps(tapExists func(string) bool, restartVM func(string) error) ([]string, error) {
+	vms, err := e.ListVMs()
+	if err != nil {
+		return nil, fmt.Errorf("list VMs for tap recovery: %w", err)
+	}
+
+	var recovered []string
+	var recoveryErrs []error
+	for _, vm := range vms {
+		if vm.NetMode != "bridge" {
+			continue
+		}
+
+		state, err := e.VMState(vm.ID)
+		if err != nil {
+			recoveryErrs = append(recoveryErrs, fmt.Errorf("check VM %q for tap recovery: %w", vm.Name, err))
+			continue
+		}
+		if state != StateRunning || tapExists(tapName(vm.ID)) {
+			continue
+		}
+
+		log.Printf("bridge VM %q is missing %s; restarting it to restore networking...", vm.Name, tapName(vm.ID))
+		if err := restartVM(vm.ID); err != nil {
+			recoveryErrs = append(recoveryErrs, fmt.Errorf("recover tap for VM %q: %w", vm.Name, err))
+			continue
+		}
+		recovered = append(recovered, vm.Name)
+	}
+
+	return recovered, errors.Join(recoveryErrs...)
+}
+
 // GetNetStatus returns the current status of the network infrastructure.
 func (e *Engine) GetNetStatus() NetStatus {
 	status := NetStatus{}
@@ -170,7 +215,7 @@ func (e *Engine) GetNetStatus() NetStatus {
 
 // CreateTap creates a tap device and attaches it to the bridge for a VM.
 func (e *Engine) CreateTap(vmID string) (string, error) {
-	tapName := fmt.Sprintf("v-tap-%s", vmID[:6])
+	tapName := tapName(vmID)
 
 	if err := run("ip", "tuntap", "add", tapName, "mode", "tap"); err != nil {
 		if !strings.Contains(err.Error(), "exists") {
@@ -191,8 +236,15 @@ func (e *Engine) CreateTap(vmID string) (string, error) {
 
 // DeleteTap removes a VM's tap device.
 func (e *Engine) DeleteTap(vmID string) {
-	tapName := fmt.Sprintf("v-tap-%s", vmID[:6])
+	tapName := tapName(vmID)
 	_ = run("ip", "link", "delete", tapName)
+}
+
+func tapName(vmID string) string {
+	if len(vmID) > 6 {
+		vmID = vmID[:6]
+	}
+	return "v-tap-" + vmID
 }
 
 // VMIPAddress looks up the IP address of a running VM by its MAC address.

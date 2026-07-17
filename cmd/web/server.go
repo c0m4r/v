@@ -30,6 +30,14 @@ func Serve(e *engine.Engine, args []string) error {
 		return err
 	}
 
+	recoveredVMs, err := e.RecoverMissingTaps()
+	if err != nil {
+		log.Printf("Warning: automatic tap recovery failed: %v", err)
+	}
+	for _, name := range recoveredVMs {
+		log.Printf("Restored bridge networking for VM %q", name)
+	}
+
 	tok, err := loadOrGenerateToken(e.DataDir)
 	if err != nil {
 		return fmt.Errorf("auth token: %w", err)
@@ -45,8 +53,7 @@ func Serve(e *engine.Engine, args []string) error {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-quit
-		log.Printf("Shutting down — cleaning up tap interfaces...")
-		e.CleanupTaps()
+		log.Printf("Shutting down web UI...")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(ctx)
