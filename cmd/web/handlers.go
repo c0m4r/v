@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/c0m4r/v/engine"
@@ -298,6 +299,32 @@ func handlePullImage(e *engine.Engine) http.HandlerFunc {
 		}
 		_ = enc.Encode(map[string]any{"path": path, "done": true})
 		flusher.Flush()
+	}
+}
+
+// handleImportImage links a file that already exists on the v host into the
+// image cache. The path is resolved server-side — the browser only sends a
+// string, no upload — so this reaches any file the v process can read.
+func handleImportImage(e *engine.Engine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Path string `json:"path"`
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, 400, "invalid JSON")
+			return
+		}
+		if req.Path == "" {
+			jsonError(w, 400, "path is required")
+			return
+		}
+		path, err := e.ImportImage(req.Path, req.Name)
+		if err != nil {
+			jsonError(w, 400, err.Error())
+			return
+		}
+		jsonResponse(w, 200, map[string]string{"name": filepath.Base(path), "path": path})
 	}
 }
 

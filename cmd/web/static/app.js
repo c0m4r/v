@@ -240,6 +240,9 @@ document.getElementById("settings-form").addEventListener("submit", async (e) =>
 
 // --- Create VM ---
 
+// Sentinel value for the "custom ISO from disk" entry in the image dropdown.
+const LOCAL_IMAGE = "__local__";
+
 async function loadImages() {
   try {
     const data = await api("GET", "/images");
@@ -252,7 +255,12 @@ async function loadImages() {
       for (const img of data.cached) {
         const opt = document.createElement("option");
         opt.value = img.Name;
-        opt.textContent = img.Name;
+        opt.textContent = img.Name + (img.Link ? " (linked)" : "");
+        if (img.Broken) {
+          // Imported image whose source file is gone — unusable until re-imported.
+          opt.textContent = img.Name + " (missing source)";
+          opt.disabled = true;
+        }
         group.appendChild(opt);
       }
       select.appendChild(group);
@@ -269,10 +277,31 @@ async function loadImages() {
       }
       select.appendChild(group);
     }
+
+    const localGroup = document.createElement("optgroup");
+    localGroup.label = "Custom";
+    const localOpt = document.createElement("option");
+    localOpt.value = LOCAL_IMAGE;
+    localOpt.textContent = "Custom ISO from disk...";
+    localGroup.appendChild(localOpt);
+    select.appendChild(localGroup);
+
+    applyLocalImageVisibility();
   } catch (err) {
     if (err.message !== "unauthorized") console.error("Failed to load images:", err);
   }
 }
+
+// Reveal the host path field only while the custom-ISO entry is selected, so
+// the browser doesn't block submit on a hidden required input.
+function applyLocalImageVisibility() {
+  const isLocal = document.getElementById("image-select").value === LOCAL_IMAGE;
+  document.getElementById("local-image-label").hidden = !isLocal;
+  document.getElementById("local-image-hint").hidden = !isLocal;
+  document.getElementById("local-image-path").required = isLocal;
+}
+
+document.getElementById("image-select").addEventListener("change", applyLocalImageVisibility);
 
 function applyBridgeAvailability() {
   const opt = document.querySelector('#create-form [name="net_mode"] option[value="bridge"]');
@@ -382,24 +411,35 @@ document.getElementById("create-form").addEventListener("submit", async (e) => {
   btn.classList.add("btn-loading");
 
   try {
-    const imgData = await api("GET", "/images");
-    const isCached = imgData.cached && imgData.cached.some(i => i.Name === imageName);
-
-    if (!isCached && imgData.available && imgData.available[imageName]) {
-      btn.textContent = "Downloading image...";
-      const result = await pullImageStreaming(imageName, (bytes, total) => {
-        const mib = 1024 * 1024;
-        const got = (bytes / mib).toFixed(1);
-        if (total > 0) {
-          const tot = (total / mib).toFixed(1);
-          const pct = (bytes * 100 / total).toFixed(1);
-          btn.textContent = `Downloading ${got} / ${tot} MB (${pct}%)`;
-        } else {
-          btn.textContent = `Downloading ${got} MB...`;
-        }
+    if (imageName === LOCAL_IMAGE) {
+      // Link the host-side file into the image cache; from here on it's an
+      // ordinary cached image referenced by its cache filename.
+      btn.textContent = "Importing ISO...";
+      const imported = await api("POST", "/images/import", {
+        path: form.get("local_path").trim(),
       });
       btn.textContent = "Create";
-      image = result.path.split("/").pop();
+      image = imported.name;
+    } else {
+      const imgData = await api("GET", "/images");
+      const isCached = imgData.cached && imgData.cached.some(i => i.Name === imageName);
+
+      if (!isCached && imgData.available && imgData.available[imageName]) {
+        btn.textContent = "Downloading image...";
+        const result = await pullImageStreaming(imageName, (bytes, total) => {
+          const mib = 1024 * 1024;
+          const got = (bytes / mib).toFixed(1);
+          if (total > 0) {
+            const tot = (total / mib).toFixed(1);
+            const pct = (bytes * 100 / total).toFixed(1);
+            btn.textContent = `Downloading ${got} / ${tot} MB (${pct}%)`;
+          } else {
+            btn.textContent = `Downloading ${got} MB...`;
+          }
+        });
+        btn.textContent = "Create";
+        image = result.path.split("/").pop();
+      }
     }
 
     const noPass = document.getElementById("no-password-check").checked;
@@ -424,6 +464,7 @@ document.getElementById("create-form").addEventListener("submit", async (e) => {
     document.getElementById("no-password-check").checked = false;
     document.getElementById("create-pw-input").disabled = false;
     document.getElementById("create-pci-label").hidden = true;
+    applyLocalImageVisibility();
 
     await loadVMs();
   } catch (err) {

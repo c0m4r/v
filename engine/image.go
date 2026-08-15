@@ -25,11 +25,31 @@ var validImageFilename = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`
 // analyzers can prove no scheme or host smuggling.
 var validImageURL = regexp.MustCompile(`^https?://[a-zA-Z0-9][a-zA-Z0-9.-]{0,253}(:[0-9]{1,5})?(/[a-zA-Z0-9._~/-]*)?$`)
 
+// invalidNameChars matches every run of characters that validImageFilename
+// rejects, so a source file like "Windows 11 (x64).iso" can still be mapped
+// onto a usable cache name.
+var invalidNameChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+
+// importableExts lists the extensions ImportImage accepts. Anything else is
+// almost certainly not bootable media, and rejecting it here gives a better
+// error than QEMU would at start time.
+var importableExts = map[string]bool{
+	".iso":   true,
+	".img":   true,
+	".qcow2": true,
+	".raw":   true,
+}
+
 // ImageInfo holds metadata about a cached image.
 type ImageInfo struct {
 	Name string
 	Size int64
 	Path string
+	// Link is the target of an imported image's symlink, empty for images
+	// that physically live in the cache. Broken is set when that target is
+	// no longer readable.
+	Link   string `json:",omitempty"`
+	Broken bool   `json:",omitempty"`
 }
 
 // maxImageBytes caps image downloads at 16 GiB.
@@ -215,7 +235,108 @@ func (e *Engine) PullImage(nameOrURL string, progress func(bytes, total int64)) 
 	return destPath, nil
 }
 
-// ListImages returns all cached images.
+// expandHome expands a leading ~/ to the home directory of the user running
+// v. Applied to import paths so the CLI and the web UI accept the same input.
+func expandHome(path string) string {
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, strings.TrimPrefix(path[1:], "/"))
+		}
+	}
+	return path
+}
+
+// sanitizeImageName maps an arbitrary basename onto the character class
+// accepted by validImageFilename, keeping the extension intact so IsISO and
+// friends still recognise the media type.
+func sanitizeImageName(name string) string {
+	name = invalidNameChars.ReplaceAllString(name, "-")
+	name = strings.TrimLeft(name, "._-")
+	const maxLen = 255
+	if len(name) > maxLen {
+		ext := filepath.Ext(name)
+		name = strings.TrimSuffix(name, ext)[:maxLen-len(ext)] + ext
+	}
+	return name
+}
+
+// ImportImage registers a file that already exists on this host as a cached
+// image, by symlinking it into ImageDir under name (defaulting to the
+// source's filename). The file itself is not copied: it stays where it is,
+// so moving or deleting it later breaks every VM created from it.
+//
+// It returns the path of the cache entry.
+func (e *Engine) ImportImage(srcPath, name string) (string, error) {
+	if strings.TrimSpace(srcPath) == "" {
+		return "", fmt.Errorf("source path is required")
+	}
+
+	// Resolve symlinks in the source so the cache entry points at the real
+	// file even if the user's own link is later repointed. This also proves
+	// the source exists.
+	resolved, err := filepath.EvalSymlinks(expandHome(srcPath))
+	if err != nil {
+		return "", fmt.Errorf("read %q: %w", srcPath, err)
+	}
+	resolved, err = filepath.Abs(resolved)
+	if err != nil {
+		return "", fmt.Errorf("resolve %q: %w", srcPath, err)
+	}
+
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("read %q: %w", srcPath, err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%q is not a regular file", srcPath)
+	}
+	// Fail now rather than at boot if QEMU wouldn't be able to open it.
+	f, err := os.Open(resolved)
+	if err != nil {
+		return "", fmt.Errorf("open %q: %w", srcPath, err)
+	}
+	_ = f.Close()
+
+	// A file that already lives in the cache needs no entry of its own.
+	// ImageDir is resolved too, so a data dir reached through a symlink
+	// (/tmp on some systems) still compares equal.
+	if name == "" {
+		if imageDir, derr := filepath.EvalSymlinks(e.ImageDir); derr == nil && filepath.Dir(resolved) == imageDir {
+			return resolved, nil
+		}
+	}
+
+	if name == "" {
+		name = filepath.Base(resolved)
+	}
+	storedName := sanitizeImageName(filepath.Base(name))
+	if !validImageFilename.MatchString(storedName) {
+		return "", fmt.Errorf("cannot derive a valid image name from %q; pass an explicit name", name)
+	}
+	if ext := strings.ToLower(filepath.Ext(storedName)); !importableExts[ext] {
+		return "", fmt.Errorf("unsupported image type %q: expected .iso, .img, .qcow2, or .raw", ext)
+	}
+
+	destPath := filepath.Join(e.ImageDir, storedName)
+	if existing, err := os.Readlink(destPath); err == nil {
+		if existing == resolved {
+			return destPath, nil // already imported, same target
+		}
+		return "", fmt.Errorf("image %q is already in the cache (linked to %s); import it under a different name", storedName, existing)
+	}
+	if _, err := os.Lstat(destPath); err == nil {
+		return "", fmt.Errorf("image %q is already in the cache; import it under a different name", storedName)
+	}
+
+	if err := os.Symlink(resolved, destPath); err != nil {
+		return "", fmt.Errorf("link image into cache: %w", err)
+	}
+	return destPath, nil
+}
+
+// ListImages returns all cached images. Imported images are symlinks, so
+// their size is read from the link target and reported as Broken when that
+// target has gone away.
 func (e *Engine) ListImages() ([]ImageInfo, error) {
 	entries, err := os.ReadDir(e.ImageDir)
 	if err != nil {
@@ -234,10 +355,28 @@ func (e *Engine) ListImages() ([]ImageInfo, error) {
 		if err != nil {
 			continue
 		}
+		imgPath := filepath.Join(e.ImageDir, entry.Name())
+
+		var link string
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, _ = os.Readlink(imgPath)
+			target, terr := os.Stat(imgPath)
+			if terr != nil {
+				// Still list it: a broken import is easier to fix when visible.
+				images = append(images, ImageInfo{Name: entry.Name(), Path: imgPath, Link: link, Broken: true})
+				continue
+			}
+			if !target.Mode().IsRegular() {
+				continue
+			}
+			info = target
+		}
+
 		images = append(images, ImageInfo{
 			Name: entry.Name(),
 			Size: info.Size(),
-			Path: filepath.Join(e.ImageDir, entry.Name()),
+			Path: imgPath,
+			Link: link,
 		})
 	}
 	return images, nil

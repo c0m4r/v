@@ -16,7 +16,7 @@ Provides a CLI and web UI for creating, running, and managing QEMU/KVM virtual m
 
 ## Features
 
-- Create VMs from cloud images (qcow2/img) or ISO installers
+- Create VMs from cloud images (qcow2/img) or ISO installers, downloaded or supplied from your own disk
 - Thin-provisioned disks (copy-on-write clones of base images)
 - Cloud-init for automatic SSH key injection, hostname, and root/default-user password
 - Auto-generated root password per VM, revealable from the web UI
@@ -118,7 +118,8 @@ v console myvm    # Ctrl+] to detach
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--name` | (required) | VM name |
-| `--image` | (required) | Base image name or cached filename |
+| `--image` | (required) | Base image name or cached filename (unless `--iso` is used) |
+| `--iso` | | Path to a local ISO/disk image on this machine; links it into the cache and installs from it |
 | `--cpus` | 1 | Number of vCPUs |
 | `--memory` | 512 | Memory in MB |
 | `--disk` | 10G | Disk size |
@@ -134,7 +135,8 @@ The password is applied to **both** `root` and the distro default user (`ubuntu`
 | Command | Description |
 |---------|-------------|
 | `v image pull <name\|url>` | Download a cloud image |
-| `v image list` | List cached images |
+| `v image import <path> [--name NAME]` | Register a local ISO/disk image (linked, not copied) |
+| `v image list` | List cached images and where they came from |
 | `v image available` | Show all known images and their URLs |
 
 ### Disk Management
@@ -180,7 +182,7 @@ v serve --listen 0.0.0.0:9090
 
 The web UI provides:
 - VM list with state, IP, and action buttons (start/stop/force-stop/restart/delete/console)
-- VM creation dialog with image selection (cached + available for download), auto-generated root password with regenerate button, and a "no password" option
+- VM creation dialog with image selection (cached + available for download + a custom ISO from the host's disk), auto-generated root password with regenerate button, and a "no password" option
 - Per-VM password reveal dialog (show/hide/copy the stored root password)
 - Live serial console via WebSocket (xterm.js) with fullscreen toggle
 - Console controls are disabled when the xterm.js assets were not included in the build
@@ -215,6 +217,42 @@ When a VM is created from an ISO:
 - Cloud-init is skipped (installers don't use it)
 - Boot device is set to `cdrom` automatically
 - On start, the ISO is attached as CDROM with boot priority
+
+### Installing From Your Own ISO
+
+Any ISO already on the machine running `v` can be used as install media — nothing is downloaded:
+
+```bash
+# One step: link the ISO into the cache and create the VM from it
+v create --name win11 --iso ~/Downloads/Win11_24H2.iso --disk 40G --memory 4096 --gpu virtio
+
+v start win11
+v console win11        # or use the GUI window with --gpu virtio
+
+# After installation, boot from the installed disk instead
+v stop win11
+v set-boot win11 disk
+v start win11
+```
+
+Or import first and reuse the ISO for several VMs:
+
+```bash
+v image import ~/Downloads/Win11_24H2.iso
+v image list
+# NAME               SIZE       SOURCE
+# Win11_24H2.iso     5721.4 MB  linked -> /home/you/Downloads/Win11_24H2.iso
+
+v create --name win11 --image Win11_24H2.iso --disk 40G
+```
+
+`.iso`, `.img`, `.qcow2`, and `.raw` files are accepted. Notes:
+
+- **The file is linked, not copied.** The cache entry is a symlink, so importing a 5 GB ISO costs no extra disk space — but moving or deleting the original breaks every VM using it. `v image list` flags such entries as `broken link`, and `v start` reports which path went missing.
+- Characters that aren't valid in a cache filename are replaced with `-`, so `My Windows 11 (x64).iso` is cached as `My-Windows-11-x64-.iso`. Use `--name` to choose the cached name yourself.
+- The ISO must be readable by the user running `v`. Remember that `sudo v` runs as root with `/root/.local/share/v/` as its data dir.
+
+In the web UI, pick **Custom ISO from disk...** at the bottom of the image dropdown in the Create VM dialog and enter the path. The path is resolved on the machine running `v serve`, not in the browser — there is no upload, so any file readable by the `v` process can be attached this way. Keep that in mind before exposing `v serve` beyond `127.0.0.1`.
 
 ## Custom Images
 

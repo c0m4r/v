@@ -84,6 +84,14 @@ func (e *Engine) startVM(idOrName string) error {
 
 	if bootDev == "cdrom" && IsISO(vm.BaseImage) {
 		isoPath := filepath.Join(e.ImageDir, vm.BaseImage)
+		// An imported ISO is a symlink to a file outside the cache, which the
+		// user may have moved or deleted since creating the VM.
+		if _, err := os.Stat(isoPath); err != nil {
+			if target, lerr := os.Readlink(isoPath); lerr == nil {
+				return fmt.Errorf("boot ISO %q points at %s, which is no longer readable", vm.BaseImage, target)
+			}
+			return fmt.Errorf("boot ISO %q not found in the image cache", vm.BaseImage)
+		}
 		args = append(args, "-cdrom", isoPath, "-boot", "d")
 	} else {
 		ciPath := filepath.Join(vmDir, "cloud-init.iso")

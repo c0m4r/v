@@ -61,6 +61,13 @@
       <form id="create-form">
         <label>Name <input name="name" required pattern="[a-zA-Z0-9][a-zA-Z0-9._-]*"></label>
         <label>Image <select name="image" id="image-select" required></select></label>
+        <label id="local-image-label" hidden>ISO path on the v host
+          <input name="local_path" id="local-image-path" placeholder="/home/you/Downloads/installer.iso" autocomplete="off" spellcheck="false">
+        </label>
+        <p id="local-image-hint" class="hint" hidden>
+          Path to an .iso, .img, .qcow2 or .raw file readable by the v process.
+          It is linked into the image cache, not copied — keep the file in place.
+        </p>
         <label>CPUs <input name="cpus" type="number" value="1" min="1" max="64"></label>
         <label>Memory (MB) <input name="memory_mb" type="number" value="512" min="128" step="128"></label>
         <label>Disk Size <input name="disk_size" value="10G" pattern="[0-9]+[GMTgmt]"></label>

@@ -155,6 +155,7 @@ func registerRoutes(mux *http.ServeMux, e *engine.Engine) {
 
 	mux.HandleFunc("GET /api/images", handleListImages(e))
 	mux.HandleFunc("POST /api/images/pull", handlePullImage(e))
+	mux.HandleFunc("POST /api/images/import", handleImportImage(e))
 
 	mux.HandleFunc("GET /api/net/status", handleNetStatus(e))
 	mux.HandleFunc("GET /api/info", handleInfo())

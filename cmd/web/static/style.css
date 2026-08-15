@@ -133,6 +133,11 @@ dialog label {
   font-size: 0.85rem;
   color: #8b949e;
 }
+/* Author display rules outrank the browser's [hidden] rule, so labels that
+   are toggled from JS (PCI address, local ISO path) need it restated. */
+dialog label[hidden] {
+  display: none;
+}
 dialog input, dialog select, dialog textarea {
   padding: 0.4rem 0.6rem;
   background: #0d1117;

@@ -30,8 +30,9 @@ Commands:
   delete      Delete a VM
   console     Attach to VM serial console
 
-  image pull  Download a cloud image
-  image list  List cached images
+  image pull   Download a cloud image
+  image import Register a local ISO/disk image (e.g. v image import ~/iso/win.iso)
+  image list   List cached images
 
   disk create Create a standalone disk image
 

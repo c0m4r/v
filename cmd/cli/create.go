@@ -12,7 +12,8 @@ import (
 func cmdCreate(e *engine.Engine, args []string) error {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 	name := fs.String("name", "", "VM name (required)")
-	image := fs.String("image", "", "Base image name (required, e.g. ubuntu-24.04)")
+	image := fs.String("image", "", "Base image name (e.g. ubuntu-24.04); required unless --iso is given")
+	iso := fs.String("iso", "", "Path to a local ISO or disk image to install from (linked into the image cache)")
 	cpus := fs.Int("cpus", 1, "Number of vCPUs")
 	memory := fs.Int("memory", 512, "Memory in MB")
 	disk := fs.String("disk", "10G", "Disk size (e.g. 10G, 20G)")
@@ -28,14 +29,26 @@ func cmdCreate(e *engine.Engine, args []string) error {
 		return err
 	}
 
-	if *name == "" || *image == "" {
-		fmt.Println("Usage: v create --name NAME --image IMAGE [options]")
+	if *name == "" || (*image == "" && *iso == "") {
+		fmt.Println("Usage: v create --name NAME (--image IMAGE | --iso PATH) [options]")
 		fs.PrintDefaults()
-		return fmt.Errorf("--name and --image are required")
+		return fmt.Errorf("--name and one of --image or --iso are required")
+	}
+	if *image != "" && *iso != "" {
+		return fmt.Errorf("--image and --iso are mutually exclusive")
 	}
 
-	// Resolve image name to filename
+	// Resolve the image to a filename in the cache. A local --iso is linked
+	// into the cache first so it looks like any other cached image from here on.
 	imageName := resolveImageName(e, *image)
+	if *iso != "" {
+		path, err := e.ImportImage(*iso, "")
+		if err != nil {
+			return fmt.Errorf("import ISO: %w", err)
+		}
+		imageName = filepath.Base(path)
+		fmt.Printf("Using local image %s\n", imageName)
+	}
 
 	var userDataContent string
 	if *userData != "" {

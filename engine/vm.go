@@ -223,7 +223,10 @@ func (e *Engine) CreateVM(opts CreateVMOpts) (*VM, error) {
 	}
 	baseImage := filepath.Join(e.ImageDir, imageName)
 	if _, err := os.Stat(baseImage); err != nil {
-		return nil, fmt.Errorf("base image %q not found (run 'v image pull' first)", opts.Image)
+		if target, lerr := os.Readlink(baseImage); lerr == nil {
+			return nil, fmt.Errorf("imported image %q points at %s, which is no longer readable", opts.Image, target)
+		}
+		return nil, fmt.Errorf("base image %q not found (run 'v image pull' or 'v image import' first)", opts.Image)
 	}
 
 	id := generateID()
