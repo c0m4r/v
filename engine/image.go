@@ -266,6 +266,10 @@ func sanitizeImageName(name string) string {
 // so moving or deleting it later breaks every VM created from it.
 //
 // It returns the path of the cache entry.
+//
+// codeql[go/path-injection]: ImportImage intentionally references an
+// arbitrary local path chosen by the operator; existence and type are
+// verified below, and the cache-side name is sanitised separately.
 func (e *Engine) ImportImage(srcPath, name string) (string, error) {
 	if strings.TrimSpace(srcPath) == "" {
 		return "", fmt.Errorf("source path is required")
