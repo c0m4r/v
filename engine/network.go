@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -116,38 +118,97 @@ func (e *Engine) SetupNetwork() error {
 
 // TeardownNetwork removes all v-tap devices, the bridge, NAT rules, and stops dnsmasq.
 func (e *Engine) TeardownNetwork() error {
-	e.CleanupTaps()
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("network teardown requires root; re-run with: sudo v net teardown")
+	}
+	return e.teardownNetwork(net.Interfaces, commandOutput)
+}
+
+func (e *Engine) teardownNetwork(listInterfaces func() ([]net.Interface, error), command func(string, ...string) ([]byte, error)) error {
+	var cleanupErrs []error
+	ifaces, err := listInterfaces()
+	if err != nil {
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("list network interfaces: %w", err))
+	}
+	cleanupErrs = append(cleanupErrs, cleanupTaps(ifaces, command))
 
 	pidFile := filepath.Join(e.DataDir, "dnsmasq.pid")
-	if data, err := os.ReadFile(pidFile); err == nil {
-		_ = run("kill", strings.TrimSpace(string(data)))
-		_ = os.Remove(pidFile)
+	data, err := os.ReadFile(pidFile)
+	if err == nil {
+		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil || pid <= 1 {
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("invalid dnsmasq PID in %s", pidFile))
+		} else if _, err := command("kill", strconv.Itoa(pid)); err != nil && !strings.Contains(err.Error(), "No such process") {
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("stop dnsmasq: %w", err))
+		} else if err := os.Remove(pidFile); err != nil && !os.IsNotExist(err) {
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("remove dnsmasq PID file: %w", err))
+		}
+	} else if !os.IsNotExist(err) {
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("read dnsmasq PID file: %w", err))
 	}
 
-	outIface, _ := defaultInterface()
-	if outIface != "" {
-		_ = run("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", BridgeNet, "-o", outIface, "-j", "MASQUERADE")
-		_ = run("iptables", "-D", "FORWARD", "-i", BridgeName, "-o", outIface, "-j", "ACCEPT")
-		_ = run("iptables", "-D", "FORWARD", "-i", outIface, "-o", BridgeName, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT")
+	// Inspect installed rules instead of the current default route: it may have
+	// changed since setup, or disappeared entirely. Delete every matching copy.
+	for _, chain := range []struct{ table, name string }{{"nat", "POSTROUTING"}, {"filter", "FORWARD"}} {
+		out, err := command("iptables", "-t", chain.table, "-S", chain.name)
+		if err != nil {
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("list %s rules: %w", chain.name, err))
+			continue
+		}
+		for _, line := range strings.Split(string(out), "\n") {
+			rule := strings.Fields(line)
+			if !isVNetworkRule(rule) {
+				continue
+			}
+			rule[0] = "-D"
+			if _, err := command("iptables", append([]string{"-t", chain.table}, rule...)...); err != nil {
+				cleanupErrs = append(cleanupErrs, fmt.Errorf("remove %s rule: %w", chain.name, err))
+			}
+		}
 	}
 
-	_ = run("ip", "link", "set", BridgeName, "down")
-	_ = run("ip", "link", "delete", BridgeName)
+	for _, iface := range ifaces {
+		if iface.Name == BridgeName {
+			if _, err := command("ip", "link", "delete", BridgeName); err != nil {
+				cleanupErrs = append(cleanupErrs, fmt.Errorf("delete bridge %s: %w", BridgeName, err))
+			}
+		}
+	}
 
-	return nil
+	return errors.Join(cleanupErrs...)
+}
+
+// Match only the rule shapes installed by SetupNetwork, allowing any uplink.
+func isVNetworkRule(rule []string) bool {
+	if len(rule) == 8 {
+		return slices.Equal(rule, []string{"-A", "POSTROUTING", "-s", BridgeNet, "-o", rule[5], "-j", "MASQUERADE"}) ||
+			slices.Equal(rule, []string{"-A", "FORWARD", "-i", BridgeName, "-o", rule[5], "-j", "ACCEPT"})
+	}
+	if len(rule) == 12 {
+		return slices.Equal(rule, []string{"-A", "FORWARD", "-i", rule[3], "-o", BridgeName, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"})
+	}
+	return false
 }
 
 // CleanupTaps removes all v-tap-* interfaces created by v.
-func (e *Engine) CleanupTaps() {
+func (e *Engine) CleanupTaps() error {
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return
+		return fmt.Errorf("list network interfaces: %w", err)
 	}
+	return cleanupTaps(ifaces, commandOutput)
+}
+
+func cleanupTaps(ifaces []net.Interface, command func(string, ...string) ([]byte, error)) error {
+	var cleanupErrs []error
 	for _, iface := range ifaces {
 		if strings.HasPrefix(iface.Name, "v-tap-") {
-			_ = run("ip", "link", "delete", iface.Name)
+			if _, err := command("ip", "link", "delete", iface.Name); err != nil {
+				cleanupErrs = append(cleanupErrs, fmt.Errorf("delete tap %s: %w", iface.Name, err))
+			}
 		}
 	}
+	return errors.Join(cleanupErrs...)
 }
 
 // RecoverMissingTaps restarts running bridge VMs whose tap interface is
@@ -297,10 +358,18 @@ func defaultInterface() (string, error) {
 }
 
 func run(name string, args ...string) error {
+	_, err := commandOutput(name, args...)
+	return err
+}
+
+func commandOutput(name string, args ...string) ([]byte, error) {
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.Command(name, args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s %s: %s: %w", name, strings.Join(args, " "), strings.TrimSpace(string(out)), err)
+	// Cleanup distinguishes an already exited dnsmasq from a failed signal.
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return out, fmt.Errorf("%s %s: %s: %w", name, strings.Join(args, " "), strings.TrimSpace(string(out)), err)
 	}
-	return nil
+	return out, nil
 }

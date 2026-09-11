@@ -341,7 +341,9 @@ sudo v net setup
 sudo v serve
 ```
 
-`v net setup` creates `v-br0`, assigns `10.10.10.1/24`, enables IP forwarding, adds iptables MASQUERADE + FORWARD rules for the default route interface, and starts dnsmasq. `v net teardown` reverses all of it and removes any leftover `v-tap-*` interfaces.
+`v net setup` creates `v-br0`, assigns `10.10.10.1/24`, enables IP forwarding, adds iptables MASQUERADE + FORWARD rules for the default route interface, and starts dnsmasq. The bridge persists after VMs stop or the web UI shuts down, including when launched through `start.sh`.
+
+After stopping any bridge VMs, run `sudo v net teardown` to remove the bridge, leftover `v-tap-*` interfaces, and v's NAT/forwarding rules, and stop dnsmasq. Teardown reports cleanup failures and can be retried; it also removes rules for an uplink that has changed since setup. Host IP forwarding remains enabled.
 
 ## Running Tests
 
