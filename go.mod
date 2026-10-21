@@ -1,11 +1,11 @@
 module github.com/c0m4r/v
 
-go 1.26.7
+go 1.26.10
 
 require (
-	github.com/ulikunitz/xz v0.5.16
-	golang.org/x/net v0.58.0
-	golang.org/x/term v0.45.0
+	github.com/ulikunitz/xz v0.5.17
+	golang.org/x/net v0.61.0
+	golang.org/x/term v0.47.0
 )
 
-require golang.org/x/sys v0.47.0 // indirect
+require golang.org/x/sys v0.49.0 // indirect
