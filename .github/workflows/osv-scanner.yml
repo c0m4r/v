@@ -16,8 +16,8 @@ on:
     branches: [ "main" ]
   merge_group:
     branches: [ "main" ]
-  schedule:
-    - cron: '16 18 * * 2'
+#  schedule:
+#    - cron: '16 18 * * 2'
   push:
     branches: [ "main" ]
 
